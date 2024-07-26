@@ -1,18 +1,10 @@
 {
-  "name": "discord-bot-template",
+  "name": "pokeglory-discord-bot",
   "version": "1.0.0",
-  "description": "A Discord bot boilerplate including TypeScript and ESLint.",
-  "author": {
-    "email": "fellipeutaka@gmail.com",
-    "name": "Fellipe Utaka"
-  },
+  "description": "Bot for the discord server of PokeGlory",
+  "author": "erykovsky",
   "license": "MIT",
   "private": true,
-  "homepage": "https://github.com/fellipeutaka/discord-bot-template",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/fellipeutaka/discord-bot-template.git"
-  },
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -22,21 +14,25 @@
     "lint": "eslint . --ext ts --fix"
   },
   "dependencies": {
-    "discord.js": "^14.7.1",
-    "dotenv": "^16.0.3"
+    "axios": "^1.7.2",
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5",
+    "node-fetch": "^3.3.2",
+    "partysocket": "^1.0.2",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/node": "^18.13.0",
-    "@typescript-eslint/eslint-plugin": "^5.51.0",
-    "@typescript-eslint/parser": "^5.51.0",
-    "eslint": "^8.33.0",
-    "eslint-config-prettier": "^8.6.0",
-    "eslint-plugin-import": "^2.25.2",
-    "eslint-plugin-n": "^15.0.0",
-    "eslint-plugin-promise": "^6.0.0",
-    "prettier": "^2.8.4",
-    "tsup": "^6.6.0",
-    "tsx": "^3.12.3",
+    "@types/node": "^18.19.42",
+    "@typescript-eslint/eslint-plugin": "^5.62.0",
+    "@typescript-eslint/parser": "^5.62.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^8.10.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-n": "^15.7.0",
+    "eslint-plugin-promise": "^6.6.0",
+    "prettier": "^2.8.8",
+    "tsup": "^6.7.0",
+    "tsx": "^3.14.0",
     "typescript": "^4.9.5"
   }
 }
