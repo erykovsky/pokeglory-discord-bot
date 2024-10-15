@@ -17,11 +17,10 @@
     "axios": "^1.7.2",
     "discord.js": "^14.15.3",
     "dotenv": "^16.4.5",
-    "node-fetch": "^3.3.2",
-    "partysocket": "^1.0.2",
-    "ws": "^8.18.0"
+    "node-fetch": "^3.3.2"
   },
   "devDependencies": {
+    "@flydotio/dockerfile": "^0.5.8",
     "@types/node": "^18.19.42",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",

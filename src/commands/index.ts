@@ -1,5 +1,5 @@
-import * as ping from "./ping";
+import * as link from "./link";
 
 export const commands = {
-  ping,
+  link,
 };
