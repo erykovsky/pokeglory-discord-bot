@@ -2,6 +2,7 @@ import { Client } from "discord.js";
 import { config } from "./config";
 import { commands } from "./commands";
 import { deployCommands } from "./deploy-commands";
+import express from "express";
 
 export const client = new Client({
   intents: ["Guilds", "GuildMessages", "DirectMessages", "MessageContent"],
@@ -47,3 +48,15 @@ client.on("interactionCreate", async (interaction) => {
 // });
 
 client.login(config.DISCORD_TOKEN);
+
+// Dodaj serwer Express
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.get("/", (req, res) => {
+  res.send("Discord bot is running!");
+});
+
+app.listen(port, "0.0.0.0", () => {
+  console.log(`Server is running on port ${port}`);
+});
