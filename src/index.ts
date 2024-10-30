@@ -9,12 +9,12 @@ client.on("ready", async () => {
   // Rejestracja komend
   const commands = [
     {
-      name: "ping",
-      description: "Odpowiada Pong!",
+      name: "link",
+      description: "Zwraca link do gry.",
     },
     {
-      name: "link",
-      description: "Zwraca link.",
+      name: "losuj",
+      description: "Losuje liczbę od 1 do 100.",
     },
   ];
 
@@ -24,12 +24,11 @@ client.on("ready", async () => {
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === "ping") {
-    await interaction.reply("Pong!");
-  }
-
   if (interaction.commandName === "link") {
-    await interaction.reply("Dołącz do nas: https://pokeglory.pl");
+    await interaction.reply("https://pokeglory.pl");
+  } else if (interaction.commandName === "losuj") {
+    const randomNumber = Math.floor(Math.random() * 100) + 1;
+    await interaction.reply(`Wylosowana liczba to: ${randomNumber}`);
   }
 });
 
