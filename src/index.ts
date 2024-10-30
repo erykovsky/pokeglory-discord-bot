@@ -3,8 +3,22 @@ import { config } from "./config";
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-client.on("ready", () => {
+client.on("ready", async () => {
   console.log("Discord bot is ready!");
+
+  // Rejestracja komend
+  const commands = [
+    {
+      name: "ping",
+      description: "Odpowiada Pong!",
+    },
+    {
+      name: "link",
+      description: "Zwraca link.",
+    },
+  ];
+
+  await client.application?.commands.set(commands);
 });
 
 client.on("interactionCreate", async (interaction) => {
@@ -15,7 +29,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   if (interaction.commandName === "link") {
-    await interaction.reply("Oto twój link: https://example.com");
+    await interaction.reply("Dołącz do nas: https://pokeglory.pl");
   }
 });
 
