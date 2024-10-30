@@ -10,8 +10,8 @@ client.on("ready", () => {
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === "ping") {
-    await interaction.reply("P1ong!");
+  if (interaction.commandName === "link") {
+    await interaction.reply("Join the game at https://pokeglory.pl");
   }
 });
 
