@@ -1,10 +1,4 @@
-import {
-  ChannelType,
-  Client,
-  GatewayIntentBits,
-  TextChannel,
-  Message,
-} from "discord.js";
+import { Client, GatewayIntentBits, Message } from "discord.js";
 import { config } from "./config";
 import linkCommand from "./commands/link";
 import losujCommand from "./commands/losuj";
@@ -47,6 +41,7 @@ client.on("messageCreate", async (message: Message) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          discordId: message.author.id,
           message: message.content,
           author: message.author.username,
           channelId: message.channel.id,
