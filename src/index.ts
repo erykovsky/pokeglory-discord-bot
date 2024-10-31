@@ -37,16 +37,6 @@ client.on("messageCreate", async (message: Message) => {
 
   if (message.content) {
     try {
-      // Send message to the same channel (since it's already the target channel)
-      const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
-
-      if (channel && channel.type === ChannelType.GuildText) {
-        // Ensure the bot does not send its own messages
-        if (message.author.id !== client.user?.id) {
-          await (channel as TextChannel).send(message.content);
-        }
-      }
-
       // Delete the original message
       await message.delete();
 
@@ -70,7 +60,7 @@ client.on("messageCreate", async (message: Message) => {
 
       console.log("Message sent to endpoint successfully.");
     } catch (error) {
-      console.error("Error sending message:", error);
+      console.error("Error processing message:", error);
     }
   }
 });
