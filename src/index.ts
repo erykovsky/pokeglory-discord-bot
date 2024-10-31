@@ -41,8 +41,8 @@ client.on("messageCreate", async (message: Message) => {
       const channel = await client.channels.fetch(TARGET_CHANNEL_ID);
 
       if (channel && channel.type === ChannelType.GuildText) {
-        // Add condition to prevent bot's own messages from being sent
-        if (!message.author.bot) {
+        // Ensure the bot does not send its own messages
+        if (message.author.id !== client.user?.id) {
           await (channel as TextChannel).send(message.content);
         }
       }
