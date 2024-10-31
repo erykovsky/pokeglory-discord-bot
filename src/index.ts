@@ -1,34 +1,43 @@
-import { Client, GatewayIntentBits } from "discord.js";
+import {
+  ChannelType,
+  Client,
+  GatewayIntentBits,
+  TextChannel,
+} from "discord.js";
 import { config } from "./config";
+import linkCommand from "./commands/link";
+import losujCommand from "./commands/losuj";
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 client.on("ready", async () => {
   console.log("Discord bot is ready!");
 
-  // Rejestracja komend
-  const commands = [
-    {
-      name: "link",
-      description: "Zwraca link do gry.",
-    },
-    {
-      name: "losuj",
-      description: "Losuje liczbę od 1 do 100.",
-    },
-  ];
+  const commands = [linkCommand, losujCommand];
 
   await client.application?.commands.set(commands);
 });
 
-client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
+client.on("messageCreate", async (message) => {
+  if (message.content) {
+    try {
+      const channel = await client.channels.fetch("1301159276324327449");
 
-  if (interaction.commandName === "link") {
-    await interaction.reply("https://pokeglory.pl");
-  } else if (interaction.commandName === "losuj") {
-    const randomNumber = Math.floor(Math.random() * 100) + 1;
-    await interaction.reply(`Wylosowana liczba to: ${randomNumber}`);
+      if (channel && channel.type === ChannelType.GuildText) {
+        await (channel as TextChannel).send(message.content);
+      }
+
+      await fetch("https://pokeglory.pl/api/discord", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: message.content }),
+      });
+      console.log("Wiadomość wysłana na endpoint.");
+    } catch (error) {
+      console.error("Błąd podczas wysyłania wiadomości:", error);
+    }
   }
 });
 

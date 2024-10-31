@@ -1,12 +1,12 @@
-import { CommandInteraction, SlashCommandBuilder } from "discord.js";
+import { CommandInteraction } from "discord.js";
 
-export const data = new SlashCommandBuilder()
-  .setName("link")
-  .setDescription("Provide a link to the game!");
+const linkCommand = {
+  name: "link",
+  description: "Zwraca link do gry.",
+  async execute(interaction: CommandInteraction) {
+    await interaction.reply("https://pokeglory.pl");
+  },
+};
 
-export async function execute(interaction: CommandInteraction) {
-  await interaction.reply({
-    content: "Join the game at https://pokeglory.pl",
-    ephemeral: true,
-  });
-}
+export default linkCommand;
+
