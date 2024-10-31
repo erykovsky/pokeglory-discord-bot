@@ -38,6 +38,9 @@ client.on("messageCreate", async (message: Message) => {
         await (channel as TextChannel).send(message.content);
       }
 
+      // Delete the original message
+      await message.delete();
+
       // Send message to Next.js endpoint
       const response = await fetch("https://pokeglory.pl/api/discord", {
         method: "POST",
@@ -46,6 +49,9 @@ client.on("messageCreate", async (message: Message) => {
         },
         body: JSON.stringify({
           message: message.content,
+          author: message.author.username,
+          channelId: message.channel.id,
+          guildId: message.guild?.id,
         }),
       });
 
@@ -53,7 +59,8 @@ client.on("messageCreate", async (message: Message) => {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      console.log("Message sent to endpoint successfully.");
+      const result = await response.json();
+      console.log("Message sent to endpoint successfully:", result);
     } catch (error) {
       console.error("Error sending message:", error);
     }
@@ -61,4 +68,3 @@ client.on("messageCreate", async (message: Message) => {
 });
 
 client.login(config.DISCORD_TOKEN);
-
