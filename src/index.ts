@@ -12,7 +12,7 @@ const client = new Client({
 });
 
 // Define the specific channel ID where the bot should operate
-const TARGET_CHANNEL_ID = "1301159276324327449";
+const TARGET_CHANNEL_ID = "1266078845551906960";
 
 client.on("ready", async () => {
   console.log("Discord bot is ready!");
