@@ -14,20 +14,20 @@ const sendchatlogCommand = {
 
     const chatLogMessage = `💬 **Chat log**
 
-> **test1**
-> test
+> **Emus**
+> To zapraszam
 ---
-> **test2**
-> test
+> **Emus**
+> :>
 ---
-> **test3**
-> test
+> **Emus**
+> 😁
 ---
-> **test4**
-> test ⚽
+> **Emus**
+> O emotki zwykle działają myślałem że wyśle ciąg znaków zapytań hehe
 ---
-> **test5**
-> test`;
+> **Eros**
+> no działają 😉`;
 
     try {
       await interaction.reply({
