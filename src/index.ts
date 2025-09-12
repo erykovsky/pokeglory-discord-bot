@@ -19,10 +19,26 @@ client.on("ready", async () => {
 
   const commands = [linkCommand, losujCommand];
 
-  // Najpierw usuń wszystkie komendy, potem dodaj tylko nasze
-  await client.application?.commands.set([]);
-  await client.application?.commands.set(commands);
+  // Pokaż wszystkie obecne komendy
+  const existingCommands = await client.application?.commands.fetch();
+  console.log(
+    "Obecne komendy:",
+    existingCommands?.map((cmd) => cmd.name)
+  );
 
+  // Usuń konkretnie komendę "pong" jeśli istnieje
+  const pongCommand = existingCommands?.find((cmd) => cmd.name === "ping");
+  if (pongCommand) {
+    await pongCommand.delete();
+    console.log("Komenda 'pong' usunięta");
+  }
+
+  // Usuń wszystkie komendy
+  await client.application?.commands.set([]);
+  console.log("Wszystkie komendy usunięte");
+
+  // Dodaj tylko nasze komendy
+  await client.application?.commands.set(commands);
   console.log(
     "Komendy zaktualizowane:",
     commands.map((cmd) => cmd.name)
