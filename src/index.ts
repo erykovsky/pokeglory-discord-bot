@@ -6,6 +6,8 @@ import muteCommand from "./commands/mute";
 import unmuteCommand from "./commands/unmute";
 import clearCommand from "./commands/clear";
 import editCommand from "./commands/edit";
+import editMessageCommand from "./commands/editmessage";
+import sendchatlogCommand from "./commands/sendchatlog";
 
 const client = new Client({
   intents: [
@@ -28,6 +30,8 @@ client.on("ready", async () => {
     unmuteCommand,
     clearCommand,
     editCommand,
+    editMessageCommand,
+    sendchatlogCommand,
   ];
 
   await client.application?.commands.set(commands);
@@ -51,6 +55,10 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     await clearCommand.execute(interaction);
   } else if (commandName === "edit") {
     await editCommand.execute(interaction);
+  } else if (commandName === "editmessage") {
+    await editMessageCommand.execute(interaction);
+  } else if (commandName === "sendchatlog") {
+    await sendchatlogCommand.execute(interaction);
   }
 });
 

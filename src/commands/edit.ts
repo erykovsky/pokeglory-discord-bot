@@ -24,9 +24,7 @@ const editCommand = {
   async execute(interaction: ChatInputCommandInteraction) {
     // Sprawdź czy użytkownik ma uprawnienia do zarządzania wiadomościami
     if (
-      !interaction.memberPermissions?.has(
-        PermissionFlagsBits.ManageMessages
-      )
+      !interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)
     ) {
       return await interaction.reply({
         content: "❌ Nie masz uprawnień do edytowania wiadomości!",
@@ -49,14 +47,15 @@ const editCommand = {
       const channel = interaction.channel as TextChannel;
       if (!channel) {
         return await interaction.reply({
-          content: "❌ Ta komenda może być używana tylko na kanałach tekstowych!",
+          content:
+            "❌ Ta komenda może być używana tylko na kanałach tekstowych!",
           ephemeral: true,
         });
       }
 
       // Pobierz wiadomość
       const message = await channel.messages.fetch(messageId);
-      
+
       if (!message) {
         return await interaction.reply({
           content: "❌ Nie znaleziono wiadomości o podanym ID!",
@@ -67,7 +66,8 @@ const editCommand = {
       // Sprawdź czy wiadomość należy do bota
       if (message.author.id !== interaction.client.user?.id) {
         return await interaction.reply({
-          content: "❌ Możesz edytować tylko wiadomości wysłane przez tego bota!",
+          content:
+            "❌ Możesz edytować tylko wiadomości wysłane przez tego bota!",
           ephemeral: true,
         });
       }
@@ -79,10 +79,9 @@ const editCommand = {
         content: "✅ Wiadomość została pomyślnie edytowana!",
         ephemeral: true,
       });
-
     } catch (error) {
       console.error("Błąd podczas edytowania wiadomości:", error);
-      
+
       if (error instanceof Error && error.message.includes("Unknown Message")) {
         return await interaction.reply({
           content: "❌ Nie znaleziono wiadomości o podanym ID!",
@@ -99,3 +98,4 @@ const editCommand = {
 };
 
 export default editCommand;
+
