@@ -2,6 +2,8 @@ import { Client, GatewayIntentBits, Message, Interaction } from "discord.js";
 import { config } from "./config";
 import linkCommand from "./commands/link";
 import losujCommand from "./commands/losuj";
+import muteCommand from "./commands/mute";
+import unmuteCommand from "./commands/unmute";
 
 const client = new Client({
   intents: [
@@ -12,12 +14,12 @@ const client = new Client({
 });
 
 // Define the specific channel ID where the bot should operate
-const TARGET_CHANNEL_ID = "1266078845551906960";
+const TARGET_CHANNEL_ID = "1416080627081412659";
 
 client.on("ready", async () => {
   console.log("Discord bot is ready!");
 
-  const commands = [linkCommand, losujCommand];
+  const commands = [linkCommand, losujCommand, muteCommand, unmuteCommand];
 
   await client.application?.commands.set(commands);
 });
@@ -32,6 +34,10 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     await linkCommand.execute(interaction);
   } else if (commandName === "losuj") {
     await losujCommand.execute(interaction);
+  } else if (commandName === "mute") {
+    await muteCommand.execute(interaction);
+  } else if (commandName === "unmute") {
+    await unmuteCommand.execute(interaction);
   }
 });
 
