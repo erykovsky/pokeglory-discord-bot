@@ -8,6 +8,7 @@ import clearCommand from "./commands/clear";
 import editCommand from "./commands/edit";
 import editMessageCommand from "./commands/editmessage";
 import sendchatlogCommand from "./commands/sendchatlog";
+import editchatlogCommand from "./commands/editchatlog";
 
 const client = new Client({
   intents: [
@@ -32,6 +33,7 @@ client.on("ready", async () => {
     editCommand,
     editMessageCommand,
     sendchatlogCommand,
+    editchatlogCommand,
   ];
 
   await client.application?.commands.set(commands);
@@ -59,6 +61,8 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     await editMessageCommand.execute(interaction);
   } else if (commandName === "sendchatlog") {
     await sendchatlogCommand.execute(interaction);
+  } else if (commandName === "editchatlog") {
+    await editchatlogCommand.execute(interaction);
   }
 });
 

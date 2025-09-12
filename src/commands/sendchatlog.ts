@@ -14,20 +14,20 @@ const sendchatlogCommand = {
 
     const chatLogMessage = `💬 **Chat log**
 
-> 👤 **test1**  
-> Hej, ktoś gra dzisiaj? 🎮
+> **test1**  
+> test
 ---
-> 👤 **test2**  
-> Ja mogę na Valo po 21 😎
+> **test2**  
+> test
 ---
-> 👤 **test3**  
-> To może Among Us? 😂
+> **test3**  
+> test
 ---
-> 👤 **test4**  
-> Turniej w sobotę? ⚽
+> **test4**  
+> test ⚽
 ---
-> 🤖 **test5**  
-> 🔔 Spotkanie zarządu jutro 19:00!`;
+> **test5**  
+> test`;
 
     try {
       await interaction.reply({
