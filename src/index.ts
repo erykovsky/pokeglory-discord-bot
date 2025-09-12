@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Message } from "discord.js";
+import { Client, GatewayIntentBits, Message, Interaction } from "discord.js";
 import { config } from "./config";
 import linkCommand from "./commands/link";
 import losujCommand from "./commands/losuj";
@@ -20,6 +20,19 @@ client.on("ready", async () => {
   const commands = [linkCommand, losujCommand];
 
   await client.application?.commands.set(commands);
+});
+
+// Handle slash commands
+client.on("interactionCreate", async (interaction: Interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  const { commandName } = interaction;
+
+  if (commandName === "link") {
+    await linkCommand.execute(interaction);
+  } else if (commandName === "losuj") {
+    await losujCommand.execute(interaction);
+  }
 });
 
 client.on("messageCreate", async (message: Message) => {
