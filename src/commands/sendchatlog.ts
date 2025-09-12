@@ -12,22 +12,22 @@ const sendchatlogCommand = {
       });
     }
 
-    const chatLogMessage = `💬 **Chat log z PokeGlory** 💬
+    const chatLogMessage = `:speech_balloon: **Chat log z PokeGlory** :speech_balloon:
 
-> **Emus**
-> To zapraszam
+***test*** \`18:30\`  
+content
 
-> **Emus**
-> :>
+***test*** \`18:31\`  
+content
 
-> **Emus**
-> 😁
+***test*** \`18:32\`  
+content
 
-> **Emus**
-> O
+***test*** \`18:33\`  
+content
 
-> **Emus**
-> no działają 😉`;
+***test*** \`18:34\`  
+content`;
 
     try {
       await interaction.reply({

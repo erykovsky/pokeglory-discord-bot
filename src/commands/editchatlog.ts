@@ -107,16 +107,16 @@ const editchatlogCommand = {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
 
-        // Sprawdź czy to początek nowej wiadomości (zaczyna się od "> **")
-        if (line.match(/^> \*\*.*\*\*\s*$/)) {
+        // Sprawdź czy to początek nowej wiadomości (zaczyna się od "***")
+        if (line.match(/^\*\*\*.*\*\*\*.*$/)) {
           currentMessageNumber++;
 
           if (currentMessageNumber === messageNumber) {
             messageStartIndex = i;
-            // Znajdź koniec tej wiadomości (następna linia z "> **" lub koniec)
+            // Znajdź koniec tej wiadomości (następna linia z "***" lub koniec)
             for (let j = i + 1; j < lines.length; j++) {
               if (
-                lines[j].match(/^> \*\*.*\*\*$/) ||
+                lines[j].match(/^\*\*\*.*\*\*\*.*$/) ||
                 lines[j].startsWith("---")
               ) {
                 messageEndIndex = j - 1;
@@ -143,12 +143,16 @@ const editchatlogCommand = {
 
         // Znajdź nazwę użytkownika z oryginalnej wiadomości lub użyj nowej
         const originalLine = lines[messageStartIndex];
-        const userNameMatch = originalLine.match(/^> \*\*(.*?)\*\*\s*$/);
-        const userName = newUsername || (userNameMatch ? userNameMatch[1] : "test1");
+        const userNameMatch = originalLine.match(/^\*\*\*(.*?)\*\*\*.*$/);
+        const userName = newUsername || (userNameMatch ? userNameMatch[1] : "test");
+        
+        // Znajdź czas z oryginalnej wiadomości
+        const timeMatch = originalLine.match(/`(\d{2}:\d{2})`/);
+        const time = timeMatch ? timeMatch[1] : "18:30";
 
         // Zastąp wiadomość nową treścią
-        newLines[messageStartIndex] = `> **${userName}**`;
-      newLines[messageStartIndex + 1] = `> ${newContent}`;
+        newLines[messageStartIndex] = `***${userName}*** \`${time}\``;
+      newLines[messageStartIndex + 1] = `${newContent}`;
 
       // Usuń stare linie wiadomości (jeśli nowa wiadomość ma inną liczbę linii)
       const oldMessageLines = messageEndIndex - messageStartIndex;
