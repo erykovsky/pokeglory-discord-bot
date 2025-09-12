@@ -15,15 +15,19 @@ const sendchatlogCommand = {
     const chatLogMessage = `💬 **Chat log**
 
 > 👤 **test1**  
-> Hej, ktoś gra dzisiaj w coś wieczorem? 🎮
+> Hej, ktoś gra dzisiaj? 🎮
+---
 > 👤 **test2**  
-> Ja mogę wpaść na Valo po 21 😎
+> Ja mogę na Valo po 21 😎
+---
 > 👤 **test3**  
-> To może wcześniej Among Us? 😂
+> To może Among Us? 😂
+---
 > 👤 **test4**  
-> Ej, a pamiętacie o turnieju w sobotę? ⚽
+> Turniej w sobotę? ⚽
+---
 > 🤖 **test5**  
-> 🔔 Przypomnienie: Spotkanie zarządu jutro o 19:00 na kanale głosowym!`;
+> 🔔 Spotkanie zarządu jutro 19:00!`;
 
     try {
       await interaction.reply({
