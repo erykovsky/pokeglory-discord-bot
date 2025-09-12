@@ -1,4 +1,8 @@
-import { ChatInputCommandInteraction, GuildMember, PermissionFlagsBits } from "discord.js";
+import {
+  ChatInputCommandInteraction,
+  GuildMember,
+  PermissionFlagsBits,
+} from "discord.js";
 
 const muteCommand = {
   name: "mute",
@@ -25,7 +29,9 @@ const muteCommand = {
   ],
   async execute(interaction: ChatInputCommandInteraction) {
     // Sprawdź czy użytkownik ma uprawnienia do moderacji
-    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ModerateMembers)) {
+    if (
+      !interaction.memberPermissions?.has(PermissionFlagsBits.ModerateMembers)
+    ) {
       return await interaction.reply({
         content: "❌ Nie masz uprawnień do wyciszania użytkowników!",
         ephemeral: true,
@@ -34,7 +40,9 @@ const muteCommand = {
 
     const user = interaction.options.getUser("user");
     const duration = interaction.options.get("duration")?.value as number;
-    const reason = (interaction.options.get("reason")?.value as string) || "Brak podanego powodu";
+    const reason =
+      (interaction.options.get("reason")?.value as string) ||
+      "Brak podanego powodu";
 
     if (!user) {
       return await interaction.reply({
@@ -43,7 +51,8 @@ const muteCommand = {
       });
     }
 
-    if (duration <= 0 || duration > 40320) { // Max 28 dni
+    if (duration <= 0 || duration > 40320) {
+      // Max 28 dni
       return await interaction.reply({
         content: "❌ Czas wyciszenia musi być między 1 minutą a 28 dniami!",
         ephemeral: true,
@@ -51,8 +60,10 @@ const muteCommand = {
     }
 
     try {
-      const member = interaction.guild?.members.cache.get(user.id) as GuildMember;
-      
+      const member = interaction.guild?.members.cache.get(
+        user.id
+      ) as GuildMember;
+
       if (!member) {
         return await interaction.reply({
           content: "❌ Użytkownik nie jest na tym serwerze!",
@@ -61,9 +72,13 @@ const muteCommand = {
       }
 
       // Sprawdź czy można wyciszyć tego użytkownika
-      if (member.roles.highest.position >= (interaction.member as GuildMember).roles.highest.position) {
+      if (
+        member.roles.highest.position >=
+        (interaction.member as GuildMember).roles.highest.position
+      ) {
         return await interaction.reply({
-          content: "❌ Nie możesz wyciszyć użytkownika z równą lub wyższą rolą!",
+          content:
+            "❌ Nie możesz wyciszyć użytkownika z równą lub wyższą rolą!",
           ephemeral: true,
         });
       }
@@ -74,7 +89,6 @@ const muteCommand = {
       await interaction.reply({
         content: `🔇 **${user.username}** został wyciszony na **${duration} minut**.\n**Powód:** ${reason}`,
       });
-
     } catch (error) {
       console.error("Błąd podczas wyciszania użytkownika:", error);
       await interaction.reply({
@@ -86,3 +100,4 @@ const muteCommand = {
 };
 
 export default muteCommand;
+
