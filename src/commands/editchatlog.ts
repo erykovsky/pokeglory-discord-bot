@@ -20,6 +20,12 @@ const editchatlogCommand = {
       type: 3, // STRING type
       required: true,
     },
+    {
+      name: "new_username",
+      description: "Nowa nazwa użytkownika (opcjonalne)",
+      type: 3, // STRING type
+      required: false,
+    },
   ],
   async execute(interaction: ChatInputCommandInteraction) {
     // Sprawdź czy użytkownik ma uprawnienia do zarządzania wiadomościami
@@ -34,6 +40,7 @@ const editchatlogCommand = {
 
     const messageNumber = interaction.options.getInteger("message_number");
     const newContent = interaction.options.getString("new_content");
+    const newUsername = interaction.options.getString("new_username");
 
     if (!messageNumber || !newContent) {
       return await interaction.reply({
@@ -88,6 +95,9 @@ const editchatlogCommand = {
 
       // Podziel wiadomość na linie
       const lines = currentContent.split("\n");
+      
+      // Debug: pokaż linie
+      console.log("Linie wiadomości:", lines);
 
       // Znajdź sekcję z wiadomością do edycji
       let messageStartIndex = -1;
@@ -131,13 +141,13 @@ const editchatlogCommand = {
       // Zbuduj nową treść wiadomości
       const newLines = [...lines];
 
-      // Znajdź nazwę użytkownika z oryginalnej wiadomości
-      const originalLine = lines[messageStartIndex];
-      const userNameMatch = originalLine.match(/^> \*\*(.*?)\*\*$/);
-      const userName = userNameMatch ? userNameMatch[1] : "test1";
+        // Znajdź nazwę użytkownika z oryginalnej wiadomości lub użyj nowej
+        const originalLine = lines[messageStartIndex];
+        const userNameMatch = originalLine.match(/^> \*\*(.*?)\*\*\s*$/);
+        const userName = newUsername || (userNameMatch ? userNameMatch[1] : "test1");
 
-      // Zastąp wiadomość nową treścią
-      newLines[messageStartIndex] = `> **${userName}**`;
+        // Zastąp wiadomość nową treścią
+        newLines[messageStartIndex] = `> **${userName}**`;
       newLines[messageStartIndex + 1] = `> ${newContent}`;
 
       // Usuń stare linie wiadomości (jeśli nowa wiadomość ma inną liczbę linii)
