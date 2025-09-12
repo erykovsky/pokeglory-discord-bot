@@ -5,6 +5,7 @@ import losujCommand from "./commands/losuj";
 import muteCommand from "./commands/mute";
 import unmuteCommand from "./commands/unmute";
 import clearCommand from "./commands/clear";
+import chatlogCommand from "./commands/chatlog";
 
 const client = new Client({
   intents: [
@@ -20,7 +21,14 @@ const TARGET_CHANNEL_ID = "1416080627081412659";
 client.on("ready", async () => {
   console.log("Discord bot is ready!");
 
-  const commands = [linkCommand, losujCommand, muteCommand, unmuteCommand, clearCommand];
+  const commands = [
+    linkCommand,
+    losujCommand,
+    muteCommand,
+    unmuteCommand,
+    clearCommand,
+    chatlogCommand,
+  ];
 
   await client.application?.commands.set(commands);
 });
@@ -41,6 +49,8 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     await unmuteCommand.execute(interaction);
   } else if (commandName === "clear") {
     await clearCommand.execute(interaction);
+  } else if (commandName === "chatlog") {
+    await chatlogCommand.execute(interaction);
   }
 });
 

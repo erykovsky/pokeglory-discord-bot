@@ -24,9 +24,7 @@ const clearCommand = {
   async execute(interaction: ChatInputCommandInteraction) {
     // Sprawdź czy użytkownik ma uprawnienia do zarządzania wiadomościami
     if (
-      !interaction.memberPermissions?.has(
-        PermissionFlagsBits.ManageMessages
-      )
+      !interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)
     ) {
       return await interaction.reply({
         content: "❌ Nie masz uprawnień do zarządzania wiadomościami!",
@@ -62,9 +60,9 @@ const clearCommand = {
     try {
       // Pobierz wiadomości
       const messages = await channel.messages.fetch({ limit: amount });
-      
+
       let messagesToDelete = messages;
-      
+
       // Jeśli podano konkretnego użytkownika, filtruj wiadomości
       if (targetUser) {
         messagesToDelete = messages.filter(
@@ -80,7 +78,8 @@ const clearCommand = {
 
       if (recentMessages.size === 0) {
         return await interaction.reply({
-          content: "❌ Nie znaleziono wiadomości do usunięcia (lub są starsze niż 14 dni)!",
+          content:
+            "❌ Nie znaleziono wiadomości do usunięcia (lub są starsze niż 14 dni)!",
           ephemeral: true,
         });
       }
@@ -93,8 +92,10 @@ const clearCommand = {
       }
 
       const deletedCount = recentMessages.size;
-      const userInfo = targetUser ? ` od użytkownika **${targetUser.username}**` : "";
-      
+      const userInfo = targetUser
+        ? ` od użytkownika **${targetUser.username}**`
+        : "";
+
       await interaction.reply({
         content: `✅ Usunięto **${deletedCount}** wiadomości${userInfo}!`,
         ephemeral: true,
@@ -108,10 +109,9 @@ const clearCommand = {
           // Ignoruj błędy przy usuwaniu wiadomości potwierdzenia
         }
       }, 5000);
-
     } catch (error) {
       console.error("Błąd podczas czyszczenia wiadomości:", error);
-      
+
       // Sprawdź czy to błąd związany z limitem czasu
       if (error instanceof Error && error.message.includes("time")) {
         return await interaction.reply({
@@ -129,3 +129,4 @@ const clearCommand = {
 };
 
 export default clearCommand;
+
