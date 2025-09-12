@@ -19,7 +19,14 @@ client.on("ready", async () => {
 
   const commands = [linkCommand, losujCommand];
 
+  // Najpierw usuń wszystkie komendy, potem dodaj tylko nasze
+  await client.application?.commands.set([]);
   await client.application?.commands.set(commands);
+
+  console.log(
+    "Komendy zaktualizowane:",
+    commands.map((cmd) => cmd.name)
+  );
 });
 
 // Handle slash commands
