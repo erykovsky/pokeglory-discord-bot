@@ -14,19 +14,19 @@ const sendchatlogCommand = {
 
     const chatLogMessage = `💬 **Chat log**
 
-> **test1**  
+> **test1**
 > test
 ---
-> **test2**  
+> **test2**
 > test
 ---
-> **test3**  
+> **test3**
 > test
 ---
-> **test4**  
+> **test4**
 > test ⚽
 ---
-> **test5**  
+> **test5**
 > test`;
 
     try {

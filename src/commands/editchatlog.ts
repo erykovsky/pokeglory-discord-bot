@@ -98,7 +98,7 @@ const editchatlogCommand = {
         const line = lines[i];
 
         // Sprawdź czy to początek nowej wiadomości (zaczyna się od "> **")
-        if (line.match(/^> \*\*.*\*\*$/)) {
+        if (line.match(/^> \*\*.*\*\*\s*$/)) {
           currentMessageNumber++;
 
           if (currentMessageNumber === messageNumber) {
@@ -131,13 +131,13 @@ const editchatlogCommand = {
       // Zbuduj nową treść wiadomości
       const newLines = [...lines];
 
-        // Znajdź nazwę użytkownika z oryginalnej wiadomości
-        const originalLine = lines[messageStartIndex];
-        const userNameMatch = originalLine.match(/^> \*\*(.*?)\*\*$/);
-        const userName = userNameMatch ? userNameMatch[1] : "test1";
+      // Znajdź nazwę użytkownika z oryginalnej wiadomości
+      const originalLine = lines[messageStartIndex];
+      const userNameMatch = originalLine.match(/^> \*\*(.*?)\*\*$/);
+      const userName = userNameMatch ? userNameMatch[1] : "test1";
 
-        // Zastąp wiadomość nową treścią
-        newLines[messageStartIndex] = `> **${userName}**`;
+      // Zastąp wiadomość nową treścią
+      newLines[messageStartIndex] = `> **${userName}**`;
       newLines[messageStartIndex + 1] = `> ${newContent}`;
 
       // Usuń stare linie wiadomości (jeśli nowa wiadomość ma inną liczbę linii)
