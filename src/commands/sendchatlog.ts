@@ -12,21 +12,21 @@ const sendchatlogCommand = {
       });
     }
 
-    const chatLogMessage = `💬 **Chat log**
+    const chatLogMessage = `💬 **Chat log z PokeGlory** 💬
 
 > **Emus**
 > To zapraszam
----
+
 > **Emus**
 > :>
----
+
 > **Emus**
 > 😁
----
+
 > **Emus**
-> O emotki zwykle działają myślałem że wyśle ciąg znaków zapytań hehe
----
-> **Eros**
+> O
+
+> **Emus**
 > no działają 😉`;
 
     try {
