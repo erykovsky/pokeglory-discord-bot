@@ -97,16 +97,16 @@ const editchatlogCommand = {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
 
-        // Sprawdź czy to początek nowej wiadomości (zaczyna się od "> 👤" lub "> 🤖")
-        if (line.match(/^> (👤|🤖) \*\*.*\*\*$/)) {
+        // Sprawdź czy to początek nowej wiadomości (zaczyna się od "> **")
+        if (line.match(/^> \*\*.*\*\*$/)) {
           currentMessageNumber++;
 
           if (currentMessageNumber === messageNumber) {
             messageStartIndex = i;
-            // Znajdź koniec tej wiadomości (następna linia z "> 👤" lub "> 🤖" lub koniec)
+            // Znajdź koniec tej wiadomości (następna linia z "> **" lub koniec)
             for (let j = i + 1; j < lines.length; j++) {
               if (
-                lines[j].match(/^> (👤|🤖) \*\*.*\*\*$/) ||
+                lines[j].match(/^> \*\*.*\*\*$/) ||
                 lines[j].startsWith("---")
               ) {
                 messageEndIndex = j - 1;
@@ -131,14 +131,13 @@ const editchatlogCommand = {
       // Zbuduj nową treść wiadomości
       const newLines = [...lines];
 
-      // Znajdź typ użytkownika (👤 lub 🤖) z oryginalnej wiadomości
-      const originalLine = lines[messageStartIndex];
-      const userTypeMatch = originalLine.match(/^> (👤|🤖) \*\*(.*?)\*\*$/);
-      const userType = userTypeMatch ? userTypeMatch[1] : "👤";
-      const userName = userTypeMatch ? userTypeMatch[2] : "test1";
+        // Znajdź nazwę użytkownika z oryginalnej wiadomości
+        const originalLine = lines[messageStartIndex];
+        const userNameMatch = originalLine.match(/^> \*\*(.*?)\*\*$/);
+        const userName = userNameMatch ? userNameMatch[1] : "test1";
 
-      // Zastąp wiadomość nową treścią
-      newLines[messageStartIndex] = `> ${userType} **${userName}**`;
+        // Zastąp wiadomość nową treścią
+        newLines[messageStartIndex] = `> **${userName}**`;
       newLines[messageStartIndex + 1] = `> ${newContent}`;
 
       // Usuń stare linie wiadomości (jeśli nowa wiadomość ma inną liczbę linii)
