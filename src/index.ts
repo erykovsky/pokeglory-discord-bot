@@ -6,7 +6,6 @@ import muteCommand from "./commands/mute";
 import unmuteCommand from "./commands/unmute";
 import clearCommand from "./commands/clear";
 import editCommand from "./commands/edit";
-import editMessageCommand from "./commands/editmessage";
 import {
   resolveGameChatChannel,
   startGameChatMirror,
@@ -34,7 +33,6 @@ client.on("ready", async () => {
     unmuteCommand,
     clearCommand,
     editCommand,
-    editMessageCommand,
   ];
 
   await client.application?.commands.set(commands);
@@ -60,8 +58,6 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     await clearCommand.execute(interaction);
   } else if (commandName === "edit") {
     await editCommand.execute(interaction);
-  } else if (commandName === "editmessage") {
-    await editMessageCommand.execute(interaction);
   }
 });
 
