@@ -7,8 +7,10 @@ import unmuteCommand from "./commands/unmute";
 import clearCommand from "./commands/clear";
 import editCommand from "./commands/edit";
 import editMessageCommand from "./commands/editmessage";
-import sendchatlogCommand from "./commands/sendchatlog";
-import editchatlogCommand from "./commands/editchatlog";
+import {
+  resolveGameChatChannel,
+  startGameChatMirror,
+} from "./game-chat-mirror";
 
 const client = new Client({
   intents: [
@@ -32,11 +34,10 @@ client.on("ready", async () => {
     clearCommand,
     editCommand,
     editMessageCommand,
-    sendchatlogCommand,
-    editchatlogCommand,
   ];
 
   await client.application?.commands.set(commands);
+  startGameChatMirror(client);
 });
 
 // Handle slash commands
@@ -59,16 +60,19 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     await editCommand.execute(interaction);
   } else if (commandName === "editmessage") {
     await editMessageCommand.execute(interaction);
-  } else if (commandName === "sendchatlog") {
-    await sendchatlogCommand.execute(interaction);
-  } else if (commandName === "editchatlog") {
-    await editchatlogCommand.execute(interaction);
   }
 });
 
 client.on("messageCreate", async (message: Message) => {
   // Ignore messages from bots to prevent potential loops
   if (message.author.bot) return;
+
+  const gameChatChannel = await resolveGameChatChannel(client);
+
+  if (gameChatChannel && message.channelId === gameChatChannel.id) {
+    await message.delete().catch(() => undefined);
+    return;
+  }
 
   // Check if the message is from the target channel
   if (message.channelId !== TARGET_CHANNEL_ID) return;
@@ -105,4 +109,3 @@ client.on("messageCreate", async (message: Message) => {
 });
 
 client.login(config.DISCORD_TOKEN);
-
