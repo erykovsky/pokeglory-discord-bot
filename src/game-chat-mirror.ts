@@ -8,10 +8,10 @@ import {
 
 import { config } from "./config";
 
-const MIRROR_SLOT_COUNT = 10;
+const MIRROR_MESSAGE_COUNT = 10;
+const MIRROR_FOOTER_PREFIX = "PokeGlory chat mirror";
 const SLOT_FOOTER_PREFIX = "PokeGlory chat slot";
-const EMPTY_SLOT_TITLE = "Czat w grze";
-const EMPTY_SLOT_DESCRIPTION = "Brak wiadomości.";
+const EMPTY_CHAT_DESCRIPTION = "Brak wiadomości.";
 
 type GameChatMessage = {
   id: number;
@@ -45,14 +45,14 @@ function normalizeDiscordChannelName(value: string) {
 export async function resolveGameChatChannel(client: Client) {
   if (config.POKEGLORY_GAME_CHAT_CHANNEL_ID) {
     const channel = await client.channels.fetch(
-      config.POKEGLORY_GAME_CHAT_CHANNEL_ID,
+      config.POKEGLORY_GAME_CHAT_CHANNEL_ID
     );
 
     return channel?.isTextBased() ? (channel as TextChannel) : null;
   }
 
   const expectedName = normalizeDiscordChannelName(
-    config.POKEGLORY_GAME_CHAT_CHANNEL_NAME,
+    config.POKEGLORY_GAME_CHAT_CHANNEL_NAME
   );
 
   for (const guild of client.guilds.cache.values()) {
@@ -60,7 +60,7 @@ export async function resolveGameChatChannel(client: Client) {
     const channel = channels.find(
       (entry) =>
         entry?.isTextBased() &&
-        normalizeDiscordChannelName(entry.name) === expectedName,
+        normalizeDiscordChannelName(entry.name) === expectedName
     );
 
     if (channel?.isTextBased()) {
@@ -71,21 +71,10 @@ export async function resolveGameChatChannel(client: Client) {
   return null;
 }
 
-function parseSlotNumber(message: Message) {
+function isLegacySlotMessage(message: Message) {
   const footerText = message.embeds[0]?.footer?.text;
 
-  if (!footerText?.startsWith(SLOT_FOOTER_PREFIX)) {
-    return null;
-  }
-
-  const match = footerText.match(/(\d+)\/\d+$/);
-  const slotNumber = match ? Number(match[1]) : Number.NaN;
-
-  if (!Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > 10) {
-    return null;
-  }
-
-  return slotNumber;
+  return Boolean(footerText?.startsWith(SLOT_FOOTER_PREFIX));
 }
 
 async function fetchGameChatMessages() {
@@ -99,16 +88,16 @@ async function fetchGameChatMessages() {
       headers: {
         "x-discord-bot-secret": config.POKEGLORY_DISCORD_BOT_SECRET,
       },
-    },
+    }
   );
 
-  const result = (await response.json().catch(() => null)) as
-    | GameChatResponse
-    | null;
+  const result = (await response
+    .json()
+    .catch(() => null)) as GameChatResponse | null;
 
   if (!response.ok || !result?.ok || !Array.isArray(result.messages)) {
     throw new Error(
-      result?.message ?? `Game chat endpoint returned ${response.status}`,
+      result?.message ?? `Game chat endpoint returned ${response.status}`
     );
   }
 
@@ -129,78 +118,69 @@ function formatMessageTime(value: string) {
   });
 }
 
-function buildMessageEmbed(message: GameChatMessage | null) {
-  const embed = new EmbedBuilder().setColor(message ? 0x3e7dd6 : 0x1d2f4f);
-
-  if (!message) {
-    return embed.setTitle(EMPTY_SLOT_TITLE).setDescription(EMPTY_SLOT_DESCRIPTION);
-  }
-
-  const authorName = message.author?.nick ?? "System";
+function formatMessageLine(message: GameChatMessage) {
+  const authorName = escapeMarkdown(message.author?.nick ?? "System").slice(
+    0,
+    80
+  );
   const time = formatMessageTime(message.createdAt);
-  const title = time ? `${authorName} · ${time}` : authorName;
-  const text = message.text.trim() || EMPTY_SLOT_DESCRIPTION;
+  const text = escapeMarkdown(message.text.trim() || EMPTY_CHAT_DESCRIPTION);
+  const header = time ? `**${authorName}** · ${time}` : `**${authorName}**`;
 
-  return embed
-    .setTitle(escapeMarkdown(title).slice(0, 256))
-    .setDescription(escapeMarkdown(text).slice(0, 4096));
+  return `${header}\n${text}`;
 }
 
-async function readMirrorMessages(channel: TextChannel) {
+function buildChatEmbed(messages: GameChatMessage[]) {
+  const description = messages.length
+    ? messages.map(formatMessageLine).join("\n\n")
+    : EMPTY_CHAT_DESCRIPTION;
+
+  return new EmbedBuilder()
+    .setColor(messages.length ? 0x3e7dd6 : 0x1d2f4f)
+    .setTitle(`Czat w grze - ostatnie ${MIRROR_MESSAGE_COUNT} wiadomości`)
+    .setDescription(description.slice(0, 4096))
+    .setFooter({
+      text: `${MIRROR_FOOTER_PREFIX} • odświeżany automatycznie`,
+    });
+}
+
+async function readMirrorMessage(channel: TextChannel) {
   const fetchedMessages = await channel.messages.fetch({ limit: 100 });
-  const slotMessages = new Map<number, Message>();
-  const unslottedBotMessages: Message[] = [];
+  const mirrorMessages: Message[] = [];
   const duplicateMessages: Message[] = [];
-  const foreignMessages: Message[] = [];
+  const legacySlotMessages: Message[] = [];
 
   for (const message of fetchedMessages.values()) {
     if (message.author.id !== channel.client.user?.id) {
-      foreignMessages.push(message);
       continue;
     }
 
-    const slotNumber = parseSlotNumber(message);
+    const footerText = message.embeds[0]?.footer?.text;
 
-    if (!slotNumber) {
-      unslottedBotMessages.push(message);
+    if (footerText?.startsWith(MIRROR_FOOTER_PREFIX)) {
+      mirrorMessages.push(message);
       continue;
     }
 
-    if (slotMessages.has(slotNumber)) {
-      duplicateMessages.push(message);
-      continue;
+    if (isLegacySlotMessage(message)) {
+      legacySlotMessages.push(message);
     }
-
-    slotMessages.set(slotNumber, message);
   }
 
-  const availableSlots = Array.from(
-    { length: MIRROR_SLOT_COUNT },
-    (_, index) => index + 1,
-  ).filter((slotNumber) => !slotMessages.has(slotNumber));
-
-  const sortedUnslottedMessages = unslottedBotMessages.sort(
-    (left, right) => left.createdTimestamp - right.createdTimestamp,
+  const sortedMirrorMessages = mirrorMessages.sort(
+    (left, right) => left.createdTimestamp - right.createdTimestamp
   );
+  const primaryMessage = sortedMirrorMessages[0] ?? null;
 
-  for (const message of sortedUnslottedMessages) {
-    const slotNumber = availableSlots.shift();
+  duplicateMessages.push(...sortedMirrorMessages.slice(1));
 
-    if (!slotNumber) {
-      duplicateMessages.push(message);
-      continue;
-    }
-
-    slotMessages.set(slotNumber, message);
-  }
-
-  for (const message of [...duplicateMessages, ...foreignMessages]) {
+  for (const message of [...duplicateMessages, ...legacySlotMessages]) {
     if (message.deletable) {
       await message.delete().catch(() => undefined);
     }
   }
 
-  return slotMessages;
+  return primaryMessage;
 }
 
 async function syncGameChatMirror(client: Client) {
@@ -208,33 +188,28 @@ async function syncGameChatMirror(client: Client) {
 
   if (!channel) {
     console.warn(
-      `Nie znaleziono kanału Discord: ${config.POKEGLORY_GAME_CHAT_CHANNEL_NAME}`,
+      `Nie znaleziono kanału Discord: ${config.POKEGLORY_GAME_CHAT_CHANNEL_NAME}`
     );
     return;
   }
 
-  const [gameMessages, slotMessages] = await Promise.all([
+  const [gameMessages, existingMessage] = await Promise.all([
     fetchGameChatMessages(),
-    readMirrorMessages(channel),
+    readMirrorMessage(channel),
   ]);
+  const embed = buildChatEmbed(gameMessages.slice(0, MIRROR_MESSAGE_COUNT));
 
-  for (let slotNumber = 1; slotNumber <= MIRROR_SLOT_COUNT; slotNumber += 1) {
-    const gameMessage = gameMessages[slotNumber - 1] ?? null;
-    const embed = buildMessageEmbed(gameMessage);
-    const existingMessage = slotMessages.get(slotNumber);
-
-    if (existingMessage) {
-      await existingMessage.edit({
-        content: "",
-        embeds: [embed],
-      });
-      continue;
-    }
-
-    await channel.send({
+  if (existingMessage) {
+    await existingMessage.edit({
+      content: "",
       embeds: [embed],
     });
+    return;
   }
+
+  await channel.send({
+    embeds: [embed],
+  });
 }
 
 export function startGameChatMirror(client: Client) {
