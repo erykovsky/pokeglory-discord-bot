@@ -26,3 +26,4 @@ docker compose logs -f bot
 ## Ważne
 
 Token Discorda trzymaj tylko w pliku `.env` na VPS-ie. Nie commituj `.env` do repo.
+Do parowania kont ustaw też `POKEGLORY_DISCORD_BOT_SECRET` w `.env` bota oraz tę samą wartość jako `DISCORD_BOT_SECRET` w `.env.production` aplikacji PokeGlory.
