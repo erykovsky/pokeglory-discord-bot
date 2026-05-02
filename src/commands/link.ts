@@ -4,6 +4,7 @@ import {
 } from "discord.js";
 
 import { config } from "../config";
+import { assignVerifiedRole } from "../verified-role";
 
 const linkCommand = {
   name: "link",
@@ -57,8 +58,12 @@ const linkCommand = {
         return;
       }
 
+      const assignedVerifiedRole = await assignVerifiedRole(interaction);
+
       await interaction.editReply(
-        `Połączono Discorda z kontem PokeGlory: ${result.nick}.`,
+        `Połączono Discorda z kontem PokeGlory: ${result.nick}.${
+          assignedVerifiedRole ? " Nadano rolę zweryfikowanego gracza." : ""
+        }`,
       );
     } catch (error) {
       console.error("Error linking Discord account:", error);

@@ -1,6 +1,7 @@
 import { Client, GatewayIntentBits, Message, Interaction } from "discord.js";
 import { config } from "./config";
 import linkCommand from "./commands/link";
+import profilCommand from "./commands/profil";
 import losujCommand from "./commands/losuj";
 import muteCommand from "./commands/mute";
 import unmuteCommand from "./commands/unmute";
@@ -11,10 +12,12 @@ import {
   startGameChatMirror,
 } from "./game-chat-mirror";
 import { startGameUpdatesMirror } from "./game-updates-mirror";
+import { sendWelcomeMessage } from "./welcome-messages";
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
@@ -28,6 +31,7 @@ client.on("ready", async () => {
 
   const commands = [
     linkCommand,
+    profilCommand,
     losujCommand,
     muteCommand,
     unmuteCommand,
@@ -48,6 +52,8 @@ client.on("interactionCreate", async (interaction: Interaction) => {
 
   if (commandName === "link") {
     await linkCommand.execute(interaction);
+  } else if (commandName === "profil") {
+    await profilCommand.execute(interaction);
   } else if (commandName === "losuj") {
     await losujCommand.execute(interaction);
   } else if (commandName === "mute") {
@@ -104,6 +110,10 @@ client.on("messageCreate", async (message: Message) => {
       console.error("Error processing message:", error);
     }
   }
+});
+
+client.on("guildMemberAdd", async (member) => {
+  await sendWelcomeMessage(member);
 });
 
 client.login(config.DISCORD_TOKEN);
