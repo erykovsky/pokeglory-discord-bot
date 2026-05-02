@@ -11,6 +11,7 @@ import {
   resolveGameChatChannel,
   startGameChatMirror,
 } from "./game-chat-mirror";
+import { startGameUpdatesMirror } from "./game-updates-mirror";
 
 const client = new Client({
   intents: [
@@ -38,6 +39,7 @@ client.on("ready", async () => {
 
   await client.application?.commands.set(commands);
   startGameChatMirror(client);
+  startGameUpdatesMirror(client);
 });
 
 // Handle slash commands

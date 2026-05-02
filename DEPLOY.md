@@ -28,3 +28,4 @@ docker compose logs -f bot
 Token Discorda trzymaj tylko w pliku `.env` na VPS-ie. Nie commituj `.env` do repo.
 Do parowania kont ustaw też `POKEGLORY_DISCORD_BOT_SECRET` w `.env` bota oraz tę samą wartość jako `DISCORD_BOT_SECRET` w `.env.production` aplikacji PokeGlory.
 Mirror czatu gry domyślnie szuka kanału `💬｜chat-w-grze`; można go też wskazać konkretnie przez `POKEGLORY_GAME_CHAT_CHANNEL_ID`.
+Mirror aktualizacji gry domyślnie szuka kanału `📢｜aktualizacje`; można go też wskazać konkretnie przez `POKEGLORY_UPDATES_CHANNEL_ID`.

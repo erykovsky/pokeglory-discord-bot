@@ -71,10 +71,6 @@ export async function resolveGameChatChannel(client: Client) {
   return null;
 }
 
-function buildSlotFooter(slotNumber: number) {
-  return `${SLOT_FOOTER_PREFIX} ${slotNumber}/${MIRROR_SLOT_COUNT}`;
-}
-
 function parseSlotNumber(message: Message) {
   const footerText = message.embeds[0]?.footer?.text;
 
@@ -129,13 +125,12 @@ function formatMessageTime(value: string) {
   return date.toLocaleTimeString("pl-PL", {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Europe/Warsaw",
   });
 }
 
-function buildMessageEmbed(slotNumber: number, message: GameChatMessage | null) {
-  const embed = new EmbedBuilder()
-    .setColor(message ? 0x3e7dd6 : 0x1d2f4f)
-    .setFooter({ text: buildSlotFooter(slotNumber) });
+function buildMessageEmbed(message: GameChatMessage | null) {
+  const embed = new EmbedBuilder().setColor(message ? 0x3e7dd6 : 0x1d2f4f);
 
   if (!message) {
     return embed.setTitle(EMPTY_SLOT_TITLE).setDescription(EMPTY_SLOT_DESCRIPTION);
@@ -154,19 +149,44 @@ function buildMessageEmbed(slotNumber: number, message: GameChatMessage | null) 
 async function readMirrorMessages(channel: TextChannel) {
   const fetchedMessages = await channel.messages.fetch({ limit: 100 });
   const slotMessages = new Map<number, Message>();
+  const unslottedBotMessages: Message[] = [];
   const duplicateMessages: Message[] = [];
   const foreignMessages: Message[] = [];
 
   for (const message of fetchedMessages.values()) {
-    const slotNumber =
-      message.author.id === channel.client.user?.id ? parseSlotNumber(message) : null;
-
-    if (!slotNumber) {
+    if (message.author.id !== channel.client.user?.id) {
       foreignMessages.push(message);
       continue;
     }
 
+    const slotNumber = parseSlotNumber(message);
+
+    if (!slotNumber) {
+      unslottedBotMessages.push(message);
+      continue;
+    }
+
     if (slotMessages.has(slotNumber)) {
+      duplicateMessages.push(message);
+      continue;
+    }
+
+    slotMessages.set(slotNumber, message);
+  }
+
+  const availableSlots = Array.from(
+    { length: MIRROR_SLOT_COUNT },
+    (_, index) => index + 1,
+  ).filter((slotNumber) => !slotMessages.has(slotNumber));
+
+  const sortedUnslottedMessages = unslottedBotMessages.sort(
+    (left, right) => left.createdTimestamp - right.createdTimestamp,
+  );
+
+  for (const message of sortedUnslottedMessages) {
+    const slotNumber = availableSlots.shift();
+
+    if (!slotNumber) {
       duplicateMessages.push(message);
       continue;
     }
@@ -200,15 +220,20 @@ async function syncGameChatMirror(client: Client) {
 
   for (let slotNumber = 1; slotNumber <= MIRROR_SLOT_COUNT; slotNumber += 1) {
     const gameMessage = gameMessages[slotNumber - 1] ?? null;
-    const embed = buildMessageEmbed(slotNumber, gameMessage);
+    const embed = buildMessageEmbed(gameMessage);
     const existingMessage = slotMessages.get(slotNumber);
 
     if (existingMessage) {
-      await existingMessage.edit({ content: "", embeds: [embed] });
+      await existingMessage.edit({
+        content: "",
+        embeds: [embed],
+      });
       continue;
     }
 
-    await channel.send({ embeds: [embed] });
+    await channel.send({
+      embeds: [embed],
+    });
   }
 }
 
