@@ -12,6 +12,7 @@ import {
   startGameChatMirror,
 } from "./game-chat-mirror";
 import { startGameUpdatesMirror } from "./game-updates-mirror";
+import { startVerifiedRoleSync } from "./verified-role-sync";
 import { sendWelcomeMessage } from "./welcome-messages";
 
 const client = new Client({
@@ -42,6 +43,7 @@ client.on("ready", async () => {
   await client.application?.commands.set(commands);
   startGameChatMirror(client);
   startGameUpdatesMirror(client);
+  startVerifiedRoleSync(client);
 });
 
 // Handle slash commands

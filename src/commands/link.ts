@@ -62,7 +62,7 @@ const linkCommand = {
 
       await interaction.editReply(
         `Połączono Discorda z kontem PokeGlory: ${result.nick}.${
-          assignedVerifiedRole ? " Nadano rolę zweryfikowanego gracza." : ""
+          assignedVerifiedRole ? " Nadano rolę Początkujący trener." : ""
         }`,
       );
     } catch (error) {

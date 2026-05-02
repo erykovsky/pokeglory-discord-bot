@@ -1,6 +1,7 @@
 import { EmbedBuilder, GuildMember, TextChannel } from "discord.js";
 
 import { config } from "./config";
+import { assignGuestRoleToMember } from "./verified-role";
 
 function normalizeDiscordChannelName(value: string) {
   return value.trim().toLowerCase();
@@ -58,6 +59,8 @@ function buildWelcomeEmbed(member: GuildMember) {
 
 export async function sendWelcomeMessage(member: GuildMember) {
   try {
+    await assignGuestRoleToMember(member);
+
     const channel = await resolveWelcomeChannel(member);
 
     if (!channel) {
