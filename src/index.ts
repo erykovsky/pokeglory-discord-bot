@@ -2,6 +2,7 @@ import { Client, GatewayIntentBits, Message, Interaction } from "discord.js";
 import { config } from "./config";
 import linkCommand from "./commands/link";
 import profilCommand from "./commands/profil";
+import dailyCommand from "./commands/daily";
 import losujCommand from "./commands/losuj";
 import muteCommand from "./commands/mute";
 import unmuteCommand from "./commands/unmute";
@@ -34,6 +35,7 @@ client.on("ready", async () => {
   const commands = [
     linkCommand,
     profilCommand,
+    dailyCommand,
     losujCommand,
     muteCommand,
     unmuteCommand,
@@ -58,6 +60,8 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     await linkCommand.execute(interaction);
   } else if (commandName === "profil") {
     await profilCommand.execute(interaction);
+  } else if (commandName === "daily") {
+    await dailyCommand.execute(interaction);
   } else if (commandName === "losuj") {
     await losujCommand.execute(interaction);
   } else if (commandName === "mute") {

@@ -63,11 +63,25 @@ async function syncVerifiedRolesInGuild(guild: Guild, linkedDiscordIds: Set<stri
   const role = await resolveVerifiedRoleForGuild(guild);
   const guestRole = await resolveGuestRoleForGuild(guild);
 
-  if (!role) {
+  if (!role || !guestRole) {
     return;
   }
 
   await guild.members.fetch();
+
+  for (const member of guild.members.cache.values()) {
+    if (member.user.bot) {
+      continue;
+    }
+
+    if (linkedDiscordIds.has(member.id)) {
+      continue;
+    }
+
+    if (!member.roles.cache.has(guestRole.id)) {
+      await assignGuestRoleToMember(member);
+    }
+  }
 
   for (const discordId of linkedDiscordIds) {
     const member = await guild.members.fetch(discordId).catch(() => null);
@@ -94,10 +108,6 @@ async function syncVerifiedRolesInGuild(guild: Guild, linkedDiscordIds: Set<stri
     );
 
     await assignGuestRoleToMember(member);
-  }
-
-  if (!guestRole) {
-    return;
   }
 
   const freshGuestRole = await guild.roles.fetch(guestRole.id);
