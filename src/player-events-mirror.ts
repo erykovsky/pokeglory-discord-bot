@@ -2,8 +2,6 @@ import { Client, EmbedBuilder, escapeMarkdown, TextChannel } from "discord.js";
 
 import { config } from "./config";
 
-const PLAYER_EVENT_MARKER_PREFIX = "<!-- pokeglory-player-event:";
-
 type PlayerEvent = {
   id: number;
   type: string;
@@ -93,32 +91,47 @@ async function fetchPlayerEvents() {
   return result.updates;
 }
 
-function buildPlayerEventMessageContent(eventId: number) {
-  return `${PLAYER_EVENT_MARKER_PREFIX}${eventId} -->`;
-}
-
-function readEventIdFromMessageContent(content: string | null | undefined) {
-  const escapedPrefix = PLAYER_EVENT_MARKER_PREFIX.replace(
-    /[.*+?^${}()|[\]\\]/g,
-    "\\$&",
-  );
-  const match = content?.match(new RegExp(`${escapedPrefix}(\\d+) -->`));
-  return match ? Number(match[1]) : null;
-}
-
 function getStringMetadata(event: PlayerEvent, key: string) {
   const value = event.metadata?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function buildPlayerEventTitle(event: PlayerEvent) {
+  const pokemonName = getStringMetadata(event, "pokemonName");
+
+  if (event.type === "shiny_wild_encounter" && pokemonName) {
+    return `🌟 Shiny ${pokemonName}`;
+  }
+
+  if (event.type === "player_level_up") {
+    return "⬆️ Awans poziomu";
+  }
+
+  return `🌟 ${event.title}`;
+}
+
+function buildPlayerEventKey(event: PlayerEvent) {
+  return `${buildPlayerEventTitle(event)}|${new Date(event.createdAt).toISOString()}`;
+}
+
+function readPlayerEventKeyFromEmbed(embed: {
+  title: string | null;
+  timestamp: string | null;
+}) {
+  if (!embed.title || !embed.timestamp) {
+    return null;
+  }
+
+  return `${embed.title.trim()}|${new Date(embed.timestamp).toISOString()}`;
+}
+
 function buildPlayerEventEmbed(event: PlayerEvent) {
   const createdAt = new Date(event.createdAt);
   const imageUrl = getStringMetadata(event, "imageUrl");
-  const pokemonName = getStringMetadata(event, "pokemonName");
-  const title = pokemonName ? `🌟 Shiny ${pokemonName}` : `🌟 ${event.title}`;
+  const title = buildPlayerEventTitle(event);
 
   const embed = new EmbedBuilder()
-    .setColor(0xfacc15)
+    .setColor(event.type === "player_level_up" ? 0x60a5fa : 0xfacc15)
     .setTitle(title.slice(0, 256))
     .setDescription(escapeMarkdown(event.content).slice(0, 4096));
 
@@ -133,23 +146,28 @@ function buildPlayerEventEmbed(event: PlayerEvent) {
   return embed;
 }
 
-async function readExistingPlayerEventIds(channel: TextChannel) {
+async function readExistingPlayerEventKeys(channel: TextChannel) {
   const fetchedMessages = await channel.messages.fetch({ limit: 100 });
-  const ids = new Set<number>();
+  const keys = new Set<string>();
 
   for (const message of fetchedMessages.values()) {
     if (message.author.id !== channel.client.user?.id) {
       continue;
     }
 
-    const eventId = readEventIdFromMessageContent(message.content);
+    const key = message.embeds[0]
+      ? readPlayerEventKeyFromEmbed({
+          title: message.embeds[0].title,
+          timestamp: message.embeds[0].timestamp,
+        })
+      : null;
 
-    if (eventId !== null) {
-      ids.add(eventId);
+    if (key) {
+      keys.add(key);
     }
   }
 
-  return ids;
+  return keys;
 }
 
 async function syncPlayerEventsMirror(client: Client) {
@@ -162,21 +180,22 @@ async function syncPlayerEventsMirror(client: Client) {
     return;
   }
 
-  const [events, existingIds] = await Promise.all([
+  const [events, existingKeys] = await Promise.all([
     fetchPlayerEvents(),
-    readExistingPlayerEventIds(channel),
+    readExistingPlayerEventKeys(channel),
   ]);
 
   for (const event of events) {
-    if (existingIds.has(event.id)) {
+    const key = buildPlayerEventKey(event);
+
+    if (existingKeys.has(key)) {
       continue;
     }
 
     await channel.send({
-      content: buildPlayerEventMessageContent(event.id),
       embeds: [buildPlayerEventEmbed(event)],
     });
-    existingIds.add(event.id);
+    existingKeys.add(key);
   }
 }
 
