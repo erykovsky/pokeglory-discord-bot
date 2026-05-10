@@ -145,15 +145,49 @@ function buildPlayerEventTitle(event: PlayerEvent) {
   return `🌟 ${event.title}`;
 }
 
+function buildAbsolutePokeGloryUrl(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  if (value.startsWith("/")) {
+    return `${config.POKEGLORY_API_URL.replace(/\/$/, "")}${value}`;
+  }
+
+  return null;
+}
+
+function buildPlayerEventDescription(event: PlayerEvent) {
+  if (event.type === "shiny_wild_encounter") {
+    const pokemonName =
+      getStringMetadata(event, "pokemonName") ?? "shiny Pokémona";
+    const locationName = getStringMetadata(event, "locationName");
+    const authorNick = event.authorNick?.trim() || "Gracz";
+
+    return locationName
+      ? `${authorNick} spotkał/a ${pokemonName} w lokacji ${locationName}.`
+      : `${authorNick} spotkał/a ${pokemonName}.`;
+  }
+
+  return event.content;
+}
+
 function buildPlayerEventEmbed(event: PlayerEvent) {
   const createdAt = new Date(event.createdAt);
-  const imageUrl = getStringMetadata(event, "imageUrl");
+  const imageUrl = buildAbsolutePokeGloryUrl(
+    getStringMetadata(event, "imageUrl"),
+  );
   const title = buildPlayerEventTitle(event);
+  const description = buildPlayerEventDescription(event);
 
   const embed = new EmbedBuilder()
     .setColor(event.type === "player_level_up" ? 0x60a5fa : 0xfacc15)
     .setTitle(title.slice(0, 256))
-    .setDescription(escapeMarkdown(event.content).slice(0, 4096));
+    .setDescription(escapeMarkdown(description).slice(0, 4096));
 
   if (imageUrl) {
     embed.setThumbnail(imageUrl);
