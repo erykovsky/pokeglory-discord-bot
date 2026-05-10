@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname } from "path";
 import { Client, EmbedBuilder, escapeMarkdown, TextChannel } from "discord.js";
 
 import { config } from "./config";
@@ -18,6 +20,14 @@ type PlayerEventsResponse = {
   message?: string;
 };
 
+type PlayerEventsState = {
+  lastSentEventId: number;
+};
+
+const PLAYER_EVENTS_STATE_FILE =
+  process.env.POKEGLORY_PLAYER_EVENTS_STATE_FILE?.trim() ||
+  "/app/data/player-events-state.json";
+
 function getSyncIntervalMs() {
   const parsed = Number(config.POKEGLORY_PLAYER_EVENTS_SYNC_INTERVAL_MS);
 
@@ -30,6 +40,31 @@ function getSyncIntervalMs() {
 
 function normalizeDiscordChannelName(value: string) {
   return value.trim().toLowerCase();
+}
+
+function readPlayerEventsState() {
+  if (!existsSync(PLAYER_EVENTS_STATE_FILE)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(
+      readFileSync(PLAYER_EVENTS_STATE_FILE, "utf8"),
+    ) as Partial<PlayerEventsState>;
+    const lastSentEventId = Number(parsed.lastSentEventId);
+
+    return Number.isFinite(lastSentEventId) && lastSentEventId >= 0
+      ? { lastSentEventId }
+      : null;
+  } catch (error) {
+    console.warn("Nie udało się odczytać stanu wydarzeń graczy:", error);
+    return null;
+  }
+}
+
+function writePlayerEventsState(state: PlayerEventsState) {
+  mkdirSync(dirname(PLAYER_EVENTS_STATE_FILE), { recursive: true });
+  writeFileSync(PLAYER_EVENTS_STATE_FILE, JSON.stringify(state, null, 2));
 }
 
 export async function resolvePlayerEventsChannel(client: Client) {
@@ -110,21 +145,6 @@ function buildPlayerEventTitle(event: PlayerEvent) {
   return `🌟 ${event.title}`;
 }
 
-function buildPlayerEventKey(event: PlayerEvent) {
-  return `${buildPlayerEventTitle(event)}|${new Date(event.createdAt).toISOString()}`;
-}
-
-function readPlayerEventKeyFromEmbed(embed: {
-  title: string | null;
-  timestamp: string | null;
-}) {
-  if (!embed.title || !embed.timestamp) {
-    return null;
-  }
-
-  return `${embed.title.trim()}|${new Date(embed.timestamp).toISOString()}`;
-}
-
 function buildPlayerEventEmbed(event: PlayerEvent) {
   const createdAt = new Date(event.createdAt);
   const imageUrl = getStringMetadata(event, "imageUrl");
@@ -146,30 +166,6 @@ function buildPlayerEventEmbed(event: PlayerEvent) {
   return embed;
 }
 
-async function readExistingPlayerEventKeys(channel: TextChannel) {
-  const fetchedMessages = await channel.messages.fetch({ limit: 100 });
-  const keys = new Set<string>();
-
-  for (const message of fetchedMessages.values()) {
-    if (message.author.id !== channel.client.user?.id) {
-      continue;
-    }
-
-    const key = message.embeds[0]
-      ? readPlayerEventKeyFromEmbed({
-          title: message.embeds[0].title,
-          timestamp: message.embeds[0].timestamp,
-        })
-      : null;
-
-    if (key) {
-      keys.add(key);
-    }
-  }
-
-  return keys;
-}
-
 async function syncPlayerEventsMirror(client: Client) {
   const channel = await resolvePlayerEventsChannel(client);
 
@@ -180,22 +176,36 @@ async function syncPlayerEventsMirror(client: Client) {
     return;
   }
 
-  const [events, existingKeys] = await Promise.all([
-    fetchPlayerEvents(),
-    readExistingPlayerEventKeys(channel),
-  ]);
+  const events = await fetchPlayerEvents();
 
-  for (const event of events) {
-    const key = buildPlayerEventKey(event);
+  if (events.length === 0) {
+    return;
+  }
 
-    if (existingKeys.has(key)) {
+  const state = readPlayerEventsState();
+  const sortedEvents = [...events].sort((a, b) => a.id - b.id);
+
+  if (!state) {
+    const latestEventId = Math.max(...sortedEvents.map((event) => event.id));
+    writePlayerEventsState({ lastSentEventId: latestEventId });
+    console.log(
+      `Zainicjowano stan wydarzeń graczy od eventu #${latestEventId}.`,
+    );
+    return;
+  }
+
+  let lastSentEventId = state.lastSentEventId;
+
+  for (const event of sortedEvents) {
+    if (event.id <= lastSentEventId) {
       continue;
     }
 
     await channel.send({
       embeds: [buildPlayerEventEmbed(event)],
     });
-    existingKeys.add(key);
+    lastSentEventId = event.id;
+    writePlayerEventsState({ lastSentEventId });
   }
 }
 
