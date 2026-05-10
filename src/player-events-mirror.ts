@@ -138,6 +138,14 @@ function formatShinyPokemonName(pokemonName: string) {
 function buildPlayerEventTitle(event: PlayerEvent) {
   const pokemonName = getStringMetadata(event, "pokemonName");
 
+  if (event.type === "shiny_legendary_wild_encounter" && pokemonName) {
+    return `🌌✨ ${formatShinyPokemonName(pokemonName)}`;
+  }
+
+  if (event.type === "legendary_wild_encounter" && pokemonName) {
+    return `🌌 ${pokemonName}`;
+  }
+
   if (event.type === "shiny_wild_encounter" && pokemonName) {
     return `🌟 ${formatShinyPokemonName(pokemonName)}`;
   }
@@ -165,16 +173,35 @@ function buildAbsolutePokeGloryUrl(value: string | null) {
   return null;
 }
 
-function buildPlayerEventDescription(event: PlayerEvent) {
-  if (event.type === "shiny_wild_encounter") {
-    const pokemonName =
-      getStringMetadata(event, "pokemonName") ?? "shiny Pokémona";
-    const locationName = getStringMetadata(event, "locationName");
-    const authorNick = event.authorNick?.trim() || "Gracz";
+function buildPokemonEncounterDescription(event: PlayerEvent, fallbackName: string) {
+  const pokemonName = getStringMetadata(event, "pokemonName") ?? fallbackName;
+  const locationName = getStringMetadata(event, "locationName");
+  const authorNick = event.authorNick?.trim() || "Gracz";
 
+  if (event.type === "shiny_legendary_wild_encounter") {
     return locationName
-      ? `${authorNick} spotkał/a ${pokemonName} w lokacji ${locationName}.`
-      : `${authorNick} spotkał/a ${pokemonName}.`;
+      ? `${authorNick} spotkał/a błyszczącą legendę: ${pokemonName} w lokacji ${locationName}.`
+      : `${authorNick} spotkał/a błyszczącą legendę: ${pokemonName}.`;
+  }
+
+  if (event.type === "legendary_wild_encounter") {
+    return locationName
+      ? `${authorNick} spotkał/a legendarnego Pokémona: ${pokemonName} w lokacji ${locationName}.`
+      : `${authorNick} spotkał/a legendarnego Pokémona: ${pokemonName}.`;
+  }
+
+  return locationName
+    ? `${authorNick} spotkał/a ${pokemonName} w lokacji ${locationName}.`
+    : `${authorNick} spotkał/a ${pokemonName}.`;
+}
+
+function buildPlayerEventDescription(event: PlayerEvent) {
+  if (
+    event.type === "shiny_wild_encounter" ||
+    event.type === "legendary_wild_encounter" ||
+    event.type === "shiny_legendary_wild_encounter"
+  ) {
+    return buildPokemonEncounterDescription(event, "Pokémona");
   }
 
   return event.content;
@@ -188,8 +215,17 @@ function buildPlayerEventEmbed(event: PlayerEvent) {
   const title = buildPlayerEventTitle(event);
   const description = buildPlayerEventDescription(event);
 
+  const embedColor =
+    event.type === "player_level_up"
+      ? 0x60a5fa
+      : event.type === "shiny_legendary_wild_encounter"
+        ? 0xf472b6
+        : event.type === "legendary_wild_encounter"
+          ? 0xa78bfa
+          : 0xfacc15;
+
   const embed = new EmbedBuilder()
-    .setColor(event.type === "player_level_up" ? 0x60a5fa : 0xfacc15)
+    .setColor(embedColor)
     .setTitle(title.slice(0, 256))
     .setDescription(escapeMarkdown(description).slice(0, 4096));
 
