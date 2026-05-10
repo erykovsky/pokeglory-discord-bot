@@ -131,11 +131,15 @@ function getStringMetadata(event: PlayerEvent, key: string) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function formatShinyPokemonName(pokemonName: string) {
+  return /^shiny\s+/i.test(pokemonName) ? pokemonName : `Shiny ${pokemonName}`;
+}
+
 function buildPlayerEventTitle(event: PlayerEvent) {
   const pokemonName = getStringMetadata(event, "pokemonName");
 
   if (event.type === "shiny_wild_encounter" && pokemonName) {
-    return `🌟 Shiny ${pokemonName}`;
+    return `🌟 ${formatShinyPokemonName(pokemonName)}`;
   }
 
   if (event.type === "player_level_up") {
