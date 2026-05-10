@@ -2,7 +2,7 @@ import { Client, EmbedBuilder, escapeMarkdown, TextChannel } from "discord.js";
 
 import { config } from "./config";
 
-const PLAYER_EVENT_FOOTER_PREFIX = "PokeGlory wydarzenia graczy";
+const PLAYER_EVENT_MARKER_PREFIX = "<!-- pokeglory-player-event:";
 
 type PlayerEvent = {
   id: number;
@@ -93,8 +93,16 @@ async function fetchPlayerEvents() {
   return result.updates;
 }
 
-function readEventIdFromEmbedFooter(footerText: string | null | undefined) {
-  const match = footerText?.match(/#(\d+)$/);
+function buildPlayerEventMessageContent(eventId: number) {
+  return `${PLAYER_EVENT_MARKER_PREFIX}${eventId} -->`;
+}
+
+function readEventIdFromMessageContent(content: string | null | undefined) {
+  const escapedPrefix = PLAYER_EVENT_MARKER_PREFIX.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&",
+  );
+  const match = content?.match(new RegExp(`${escapedPrefix}(\\d+) -->`));
   return match ? Number(match[1]) : null;
 }
 
@@ -107,19 +115,12 @@ function buildPlayerEventEmbed(event: PlayerEvent) {
   const createdAt = new Date(event.createdAt);
   const imageUrl = getStringMetadata(event, "imageUrl");
   const pokemonName = getStringMetadata(event, "pokemonName");
-  const locationName = getStringMetadata(event, "locationName");
   const title = pokemonName ? `🌟 Shiny ${pokemonName}` : `🌟 ${event.title}`;
-  const description = locationName
-    ? `${escapeMarkdown(event.content)}\n\nLokacja: **${escapeMarkdown(locationName)}**`
-    : escapeMarkdown(event.content);
 
   const embed = new EmbedBuilder()
     .setColor(0xfacc15)
     .setTitle(title.slice(0, 256))
-    .setDescription(description.slice(0, 4096))
-    .setFooter({
-      text: `${PLAYER_EVENT_FOOTER_PREFIX} • #${event.id}`,
-    });
+    .setDescription(escapeMarkdown(event.content).slice(0, 4096));
 
   if (imageUrl) {
     embed.setThumbnail(imageUrl);
@@ -141,7 +142,7 @@ async function readExistingPlayerEventIds(channel: TextChannel) {
       continue;
     }
 
-    const eventId = readEventIdFromEmbedFooter(message.embeds[0]?.footer?.text);
+    const eventId = readEventIdFromMessageContent(message.content);
 
     if (eventId !== null) {
       ids.add(eventId);
@@ -172,6 +173,7 @@ async function syncPlayerEventsMirror(client: Client) {
     }
 
     await channel.send({
+      content: buildPlayerEventMessageContent(event.id),
       embeds: [buildPlayerEventEmbed(event)],
     });
     existingIds.add(event.id);
