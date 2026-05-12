@@ -17,6 +17,8 @@ type PlayerRankingEntry = {
   level: number;
   pokemonCount: number;
   totalPokemonValue: number;
+  totalItemValue?: number;
+  totalRankingValue?: number;
   points: number;
 };
 
@@ -133,10 +135,15 @@ function formatRankingLine(entry: PlayerRankingEntry) {
       : `#${entry.rank}`;
   const nick = escapeMarkdown(entry.nick).slice(0, 80);
   const points = numberFormatter.format(entry.points);
-  const value = numberFormatter.format(entry.totalPokemonValue);
+  const totalPokemonValue = numberFormatter.format(entry.totalPokemonValue);
+  const totalItemValue = numberFormatter.format(entry.totalItemValue ?? 0);
+  const totalRankingValue = numberFormatter.format(
+    entry.totalRankingValue ??
+      entry.totalPokemonValue + (entry.totalItemValue ?? 0)
+  );
   const pokemonCount = numberFormatter.format(entry.pokemonCount);
 
-  return `${medal} **${nick}** · ${points} pkt · lvl ${entry.level} · ${pokemonCount} Pokémonów · ${value} ¥`;
+  return `${medal} **${nick}** · ${points} pkt · lvl ${entry.level} · ${pokemonCount} Pokémonów · razem ${totalRankingValue} ¥ · Pokémony ${totalPokemonValue} ¥ · przedmioty ${totalItemValue} ¥`;
 }
 
 function buildRankingEmbed(

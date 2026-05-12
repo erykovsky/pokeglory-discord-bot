@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname } from "path";
 import { Client, EmbedBuilder, escapeMarkdown, TextChannel } from "discord.js";
 
 import { config } from "./config";
@@ -18,6 +20,14 @@ type PlayerEventsResponse = {
   message?: string;
 };
 
+type PlayerEventsState = {
+  lastSentEventId: number;
+};
+
+const PLAYER_EVENTS_STATE_FILE =
+  process.env.POKEGLORY_PLAYER_EVENTS_STATE_FILE?.trim() ||
+  "/app/data/player-events-state.json";
+
 function getSyncIntervalMs() {
   const parsed = Number(config.POKEGLORY_PLAYER_EVENTS_SYNC_INTERVAL_MS);
 
@@ -30,6 +40,31 @@ function getSyncIntervalMs() {
 
 function normalizeDiscordChannelName(value: string) {
   return value.trim().toLowerCase();
+}
+
+function readPlayerEventsState() {
+  if (!existsSync(PLAYER_EVENTS_STATE_FILE)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(
+      readFileSync(PLAYER_EVENTS_STATE_FILE, "utf8"),
+    ) as Partial<PlayerEventsState>;
+    const lastSentEventId = Number(parsed.lastSentEventId);
+
+    return Number.isFinite(lastSentEventId) && lastSentEventId >= 0
+      ? { lastSentEventId }
+      : null;
+  } catch (error) {
+    console.warn("Nie udało się odczytać stanu wydarzeń graczy:", error);
+    return null;
+  }
+}
+
+function writePlayerEventsState(state: PlayerEventsState) {
+  mkdirSync(dirname(PLAYER_EVENTS_STATE_FILE), { recursive: true });
+  writeFileSync(PLAYER_EVENTS_STATE_FILE, JSON.stringify(state, null, 2));
 }
 
 export async function resolvePlayerEventsChannel(client: Client) {
@@ -67,7 +102,10 @@ async function fetchPlayerEvents() {
   }
 
   const response = await fetch(
-    `${config.POKEGLORY_API_URL.replace(/\/$/, "")}/api/discord/game-updates?kind=player-events`,
+    `${config.POKEGLORY_API_URL.replace(
+      /\/$/,
+      "",
+    )}/api/discord/game-updates?kind=player-events`,
     {
       headers: {
         "x-discord-bot-secret": config.POKEGLORY_DISCORD_BOT_SECRET,
@@ -88,119 +126,157 @@ async function fetchPlayerEvents() {
   return result.updates;
 }
 
-function buildEventKey(event: Pick<PlayerEvent, "id" | "type">) {
-  return `${event.type}:${event.id}`;
+function getStringMetadata(event: PlayerEvent, key: string) {
+  const value = event.metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function readEventKeyFromEmbed(embed: { footer: { text: string | null } | null }) {
-  const footerText = embed.footer?.text ?? "";
-  const match = footerText.match(/#(\d+)$/);
-
-  if (!match) {
-    return null;
-  }
-
-  const typeMatch = footerText.match(/PokeGlory wydarzenia graczy • ([^•]+) • #/);
-
-  if (!typeMatch) {
-    return null;
-  }
-
-  return `${typeMatch[1]?.trim()}:${match[1]}`;
+function getNumberMetadata(event: PlayerEvent, key: string) {
+  const value = event.metadata?.[key];
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function getEventPresentation(event: PlayerEvent) {
-  if (event.type === "shiny_pokemon_hatched") {
-    return {
-      color: 0xfacc15,
-      title: `✨ ${event.title}`,
-    };
+function formatShinyPokemonName(pokemonName: string) {
+  return /^shiny\s+/i.test(pokemonName) ? pokemonName : `Shiny ${pokemonName}`;
+}
+
+function buildPlayerEventTitle(event: PlayerEvent) {
+  const pokemonName = getStringMetadata(event, "pokemonName");
+
+  if (event.type === "shiny_pokemon_hatched" && pokemonName) {
+    return `✨ ${formatShinyPokemonName(pokemonName)}`;
   }
 
-  if (event.type === "shiny_legendary_wild_encounter") {
-    return {
-      color: 0xf59e0b,
-      title: `🌟 ${event.title}`,
-    };
+  if (event.type === "shiny_legendary_wild_encounter" && pokemonName) {
+    return `🌌✨ ${formatShinyPokemonName(pokemonName)}`;
   }
 
-  if (event.type === "shiny_wild_encounter") {
-    return {
-      color: 0xfacc15,
-      title: `🌟 ${event.title}`,
-    };
+  if (event.type === "legendary_wild_encounter" && pokemonName) {
+    return `🌌 ${pokemonName}`;
   }
 
-  if (event.type === "legendary_wild_encounter") {
-    return {
-      color: 0x38bdf8,
-      title: `🐉 ${event.title}`,
-    };
+  if (event.type === "shiny_wild_encounter" && pokemonName) {
+    return `🌟 ${formatShinyPokemonName(pokemonName)}`;
   }
 
   if (event.type === "player_level_up") {
-    return {
-      color: 0x60a5fa,
-      title: `⬆️ ${event.title}`,
-    };
+    return "⬆️ Awans poziomu";
   }
 
-  return {
-    color: 0x94a3b8,
-    title: event.title,
-  };
+  return `🌟 ${event.title}`;
 }
 
-function buildEventEmbed(event: PlayerEvent) {
+function buildAbsolutePokeGloryUrl(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  if (value.startsWith("/")) {
+    return `${config.POKEGLORY_API_URL.replace(/\/$/, "")}${value}`;
+  }
+
+  return null;
+}
+
+function buildPokemonEncounterDescription(event: PlayerEvent, fallbackName: string) {
+  const pokemonName = getStringMetadata(event, "pokemonName") ?? fallbackName;
+  const locationName = getStringMetadata(event, "locationName");
+  const level = getNumberMetadata(event, "level");
+  const authorNick = event.authorNick?.trim() || "Gracz";
+  const levelText = level ? ` na poziomie ${level}` : "";
+
+  if (event.type === "shiny_legendary_wild_encounter") {
+    return locationName
+      ? `${authorNick} spotkał/a błyszczącą legendę: ${pokemonName}${levelText} w lokacji ${locationName}.`
+      : `${authorNick} spotkał/a błyszczącą legendę: ${pokemonName}${levelText}.`;
+  }
+
+  if (event.type === "legendary_wild_encounter") {
+    return locationName
+      ? `${authorNick} spotkał/a legendarnego Pokémona: ${pokemonName}${levelText} w lokacji ${locationName}.`
+      : `${authorNick} spotkał/a legendarnego Pokémona: ${pokemonName}${levelText}.`;
+  }
+
+  return locationName
+    ? `${authorNick} spotkał/a ${pokemonName}${levelText} w lokacji ${locationName}.`
+    : `${authorNick} spotkał/a ${pokemonName}${levelText}.`;
+}
+
+function buildPokemonHatchedDescription(event: PlayerEvent) {
+  const pokemonName = getStringMetadata(event, "pokemonName") ?? "shiny Pokémona";
+  const level = getNumberMetadata(event, "level");
+  const authorNick = event.authorNick?.trim() || "Gracz";
+  const levelText = level ? ` na poziomie ${level}` : "";
+
+  return `${authorNick} wykluł/a ${pokemonName}${levelText}.`;
+}
+
+function buildPlayerEventDescription(event: PlayerEvent) {
+  if (event.type === "shiny_pokemon_hatched") {
+    return buildPokemonHatchedDescription(event);
+  }
+
+  if (
+    event.type === "shiny_wild_encounter" ||
+    event.type === "legendary_wild_encounter" ||
+    event.type === "shiny_legendary_wild_encounter"
+  ) {
+    return buildPokemonEncounterDescription(event, "Pokémona");
+  }
+
+  return event.content;
+}
+
+function getPlayerEventColor(event: PlayerEvent) {
+  if (event.type === "player_level_up") {
+    return 0x60a5fa;
+  }
+
+  if (event.type === "shiny_legendary_wild_encounter") {
+    return 0xf472b6;
+  }
+
+  if (event.type === "legendary_wild_encounter") {
+    return 0xa78bfa;
+  }
+
+  if (event.type === "shiny_pokemon_hatched") {
+    return 0xfacc15;
+  }
+
+  return 0xfacc15;
+}
+
+function buildPlayerEventEmbed(event: PlayerEvent) {
   const createdAt = new Date(event.createdAt);
-  const presentation = getEventPresentation(event);
-  const imageUrl =
-    typeof event.metadata.imageUrl === "string" ? event.metadata.imageUrl : null;
+  const imageUrl = buildAbsolutePokeGloryUrl(
+    getStringMetadata(event, "imageUrl"),
+  );
+  const title = buildPlayerEventTitle(event);
+  const description = buildPlayerEventDescription(event);
+
   const embed = new EmbedBuilder()
-    .setColor(presentation.color)
-    .setTitle(escapeMarkdown(presentation.title).slice(0, 256))
-    .setDescription(escapeMarkdown(event.content).slice(0, 4096))
+    .setColor(getPlayerEventColor(event))
+    .setTitle(title.slice(0, 256))
+    .setDescription(escapeMarkdown(description).slice(0, 4096))
     .setFooter({
-      text: `PokeGlory wydarzenia graczy • ${event.type} • #${event.id}`,
+      text: `PokeGlory wydarzenia graczy • #${event.id}`,
     });
+
+  if (imageUrl) {
+    embed.setThumbnail(imageUrl);
+  }
 
   if (!Number.isNaN(createdAt.getTime())) {
     embed.setTimestamp(createdAt);
   }
 
-  if (imageUrl) {
-    embed.setThumbnail(
-      imageUrl.startsWith("http")
-        ? imageUrl
-        : `${config.POKEGLORY_API_URL.replace(/\/$/, "")}${imageUrl}`,
-    );
-  }
-
   return embed;
-}
-
-async function readExistingEventKeys(channel: TextChannel) {
-  const fetchedMessages = await channel.messages.fetch({ limit: 100 });
-  const keys = new Set<string>();
-
-  for (const message of fetchedMessages.values()) {
-    if (message.author.id !== channel.client.user?.id) {
-      continue;
-    }
-
-    const embed = message.embeds[0];
-    const key = embed
-      ? readEventKeyFromEmbed({
-          footer: embed.footer,
-        })
-      : null;
-
-    if (key) {
-      keys.add(key);
-    }
-  }
-
-  return keys;
 }
 
 async function syncPlayerEventsMirror(client: Client) {
@@ -213,22 +289,36 @@ async function syncPlayerEventsMirror(client: Client) {
     return;
   }
 
-  const [events, existingKeys] = await Promise.all([
-    fetchPlayerEvents(),
-    readExistingEventKeys(channel),
-  ]);
+  const events = await fetchPlayerEvents();
 
-  for (const event of events) {
-    const key = buildEventKey(event);
+  if (events.length === 0) {
+    return;
+  }
 
-    if (existingKeys.has(key)) {
+  const state = readPlayerEventsState();
+  const sortedEvents = [...events].sort((a, b) => a.id - b.id);
+
+  if (!state) {
+    const latestEventId = Math.max(...sortedEvents.map((event) => event.id));
+    writePlayerEventsState({ lastSentEventId: latestEventId });
+    console.log(
+      `Zainicjowano stan wydarzeń graczy od eventu #${latestEventId}.`,
+    );
+    return;
+  }
+
+  let lastSentEventId = state.lastSentEventId;
+
+  for (const event of sortedEvents) {
+    if (event.id <= lastSentEventId) {
       continue;
     }
 
     await channel.send({
-      embeds: [buildEventEmbed(event)],
+      embeds: [buildPlayerEventEmbed(event)],
     });
-    existingKeys.add(key);
+    lastSentEventId = event.id;
+    writePlayerEventsState({ lastSentEventId });
   }
 }
 
