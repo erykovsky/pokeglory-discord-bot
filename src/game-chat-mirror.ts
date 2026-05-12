@@ -12,6 +12,7 @@ const MIRROR_MESSAGE_COUNT = 10;
 const MIRROR_FOOTER_PREFIX = "PokeGlory chat mirror";
 const SLOT_FOOTER_PREFIX = "PokeGlory chat slot";
 const EMPTY_CHAT_DESCRIPTION = "Brak wiadomości.";
+const ORGANIZATION_AD_PREFIX = "ORG_AD|";
 
 type GameChatMessage = {
   id: number;
@@ -118,13 +119,59 @@ function formatMessageTime(value: string) {
   });
 }
 
+function parseOrganizationAdvertisement(text: string) {
+  if (!text.startsWith(ORGANIZATION_AD_PREFIX)) {
+    return null;
+  }
+
+  const [, organizationSlug, organizationName, ...contentParts] =
+    text.split("|");
+  const content = contentParts.join("|").trim();
+  const safeOrganizationName = organizationName?.trim();
+
+  if (!safeOrganizationName || !content) {
+    return null;
+  }
+
+  return {
+    organizationSlug: organizationSlug?.trim() ?? "",
+    organizationName: safeOrganizationName,
+    content,
+  };
+}
+
+function formatMessageText(message: GameChatMessage) {
+  const organizationAdvertisement = parseOrganizationAdvertisement(
+    message.text.trim()
+  );
+
+  if (!organizationAdvertisement) {
+    return escapeMarkdown(message.text.trim() || EMPTY_CHAT_DESCRIPTION);
+  }
+
+  const organizationName = escapeMarkdown(
+    organizationAdvertisement.organizationName
+  );
+  const content = escapeMarkdown(organizationAdvertisement.content);
+  const organizationUrl = organizationAdvertisement.organizationSlug
+    ? `${config.POKEGLORY_API_URL.replace(/\/$/, "")}/organizacja/${encodeURIComponent(
+        organizationAdvertisement.organizationSlug
+      )}`
+    : null;
+  const organizationLine = organizationUrl
+    ? `[${organizationName}](${organizationUrl})`
+    : organizationName;
+
+  return `**Reklama organizacji**\n${content}\n${organizationLine}`;
+}
+
 function formatMessageLine(message: GameChatMessage) {
   const authorName = escapeMarkdown(message.author?.nick ?? "System").slice(
     0,
     80
   );
   const time = formatMessageTime(message.createdAt);
-  const text = escapeMarkdown(message.text.trim() || EMPTY_CHAT_DESCRIPTION);
+  const text = formatMessageText(message);
   const header = time ? `**${authorName}** · ${time}` : `**${authorName}**`;
 
   return `${header}\n${text}`;

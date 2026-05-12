@@ -13,6 +13,7 @@ import {
   startGameChatMirror,
 } from "./game-chat-mirror";
 import { startGameUpdatesMirror } from "./game-updates-mirror";
+import { startPlayerEventsMirror } from "./player-events-mirror";
 import { startPlayerRankingMirror } from "./player-ranking-mirror";
 import { startVerifiedRoleSync } from "./verified-role-sync";
 import { sendWelcomeMessage } from "./welcome-messages";
@@ -46,6 +47,7 @@ client.on("ready", async () => {
   await client.application?.commands.set(commands);
   startGameChatMirror(client);
   startGameUpdatesMirror(client);
+  startPlayerEventsMirror(client);
   startPlayerRankingMirror(client);
   startVerifiedRoleSync(client);
 });
