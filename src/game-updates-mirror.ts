@@ -16,8 +16,22 @@ type GameUpdatesResponse = {
   message?: string;
 };
 
-function getSyncIntervalMs() {
-  const parsed = Number(config.POKEGLORY_UPDATES_SYNC_INTERVAL_MS);
+type GameUpdatesMirrorKind = "game-updates" | "admin-announcements";
+
+type GameUpdatesMirrorConfig = {
+  kind: GameUpdatesMirrorKind;
+  channelId?: string;
+  channelName: string;
+  syncIntervalMs: string;
+  color: number;
+  missingChannelLabel: string;
+  errorLabel: string;
+};
+
+const missingChannelWarnings = new Map<string, number>();
+
+function getSyncIntervalMs(value: string) {
+  const parsed = Number(value);
 
   if (!Number.isFinite(parsed)) {
     return 5000;
@@ -30,18 +44,18 @@ function normalizeDiscordChannelName(value: string) {
   return value.trim().toLowerCase();
 }
 
-export async function resolveGameUpdatesChannel(client: Client) {
-  if (config.POKEGLORY_UPDATES_CHANNEL_ID) {
-    const channel = await client.channels.fetch(
-      config.POKEGLORY_UPDATES_CHANNEL_ID,
-    );
+async function resolveTextChannel(
+  client: Client,
+  channelId: string | undefined,
+  channelName: string,
+) {
+  if (channelId) {
+    const channel = await client.channels.fetch(channelId);
 
     return channel?.isTextBased() ? (channel as TextChannel) : null;
   }
 
-  const expectedName = normalizeDiscordChannelName(
-    config.POKEGLORY_UPDATES_CHANNEL_NAME,
-  );
+  const expectedName = normalizeDiscordChannelName(channelName);
 
   for (const guild of client.guilds.cache.values()) {
     const channels = await guild.channels.fetch();
@@ -59,19 +73,40 @@ export async function resolveGameUpdatesChannel(client: Client) {
   return null;
 }
 
-async function fetchGameUpdates() {
+export async function resolveGameUpdatesChannel(client: Client) {
+  return resolveTextChannel(
+    client,
+    config.POKEGLORY_UPDATES_CHANNEL_ID,
+    config.POKEGLORY_UPDATES_CHANNEL_NAME,
+  );
+}
+
+export async function resolveAdminAnnouncementsChannel(client: Client) {
+  return resolveTextChannel(
+    client,
+    config.POKEGLORY_ADMIN_ANNOUNCEMENTS_CHANNEL_ID,
+    config.POKEGLORY_ADMIN_ANNOUNCEMENTS_CHANNEL_NAME,
+  );
+}
+
+async function fetchGameUpdates(kind: GameUpdatesMirrorKind) {
   if (!config.POKEGLORY_DISCORD_BOT_SECRET) {
     throw new Error("Missing POKEGLORY_DISCORD_BOT_SECRET");
   }
 
-  const response = await fetch(
+  const url = new URL(
     `${config.POKEGLORY_API_URL.replace(/\/$/, "")}/api/discord/game-updates`,
-    {
-      headers: {
-        "x-discord-bot-secret": config.POKEGLORY_DISCORD_BOT_SECRET,
-      },
-    },
   );
+
+  if (kind === "admin-announcements") {
+    url.searchParams.set("kind", "admin-announcements");
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      "x-discord-bot-secret": config.POKEGLORY_DISCORD_BOT_SECRET,
+    },
+  });
 
   const result = (await response.json().catch(() => null)) as
     | GameUpdatesResponse
@@ -91,7 +126,10 @@ function buildUpdateKey(update: Pick<GameUpdate, "title" | "createdAt">) {
   return `${update.title.trim()}|${timestamp}`;
 }
 
-function readUpdateKeyFromEmbed(embed: { title: string | null; timestamp: string | null }) {
+function readUpdateKeyFromEmbed(embed: {
+  title: string | null;
+  timestamp: string | null;
+}) {
   if (!embed.title || !embed.timestamp) {
     return null;
   }
@@ -99,10 +137,10 @@ function readUpdateKeyFromEmbed(embed: { title: string | null; timestamp: string
   return `${embed.title.trim()}|${new Date(embed.timestamp).toISOString()}`;
 }
 
-function buildUpdateEmbed(update: GameUpdate) {
+function buildUpdateEmbed(update: GameUpdate, mirror: GameUpdatesMirrorConfig) {
   const createdAt = new Date(update.createdAt);
   const embed = new EmbedBuilder()
-    .setColor(0x38bdf8)
+    .setColor(mirror.color)
     .setTitle(escapeMarkdown(update.title).slice(0, 256))
     .setDescription(escapeMarkdown(update.content).slice(0, 4096));
 
@@ -148,18 +186,35 @@ async function readExistingUpdateKeys(channel: TextChannel) {
   return keys;
 }
 
-async function syncGameUpdatesMirror(client: Client) {
-  const channel = await resolveGameUpdatesChannel(client);
+function warnMissingChannel(channelName: string) {
+  const now = Date.now();
+  const lastWarningAt = missingChannelWarnings.get(channelName) ?? 0;
+
+  if (now - lastWarningAt < 60000) {
+    return;
+  }
+
+  missingChannelWarnings.set(channelName, now);
+  console.warn(`Nie znaleziono kanału Discord: ${channelName}`);
+}
+
+async function syncGameUpdatesMirror(
+  client: Client,
+  mirror: GameUpdatesMirrorConfig,
+) {
+  const channel = await resolveTextChannel(
+    client,
+    mirror.channelId,
+    mirror.channelName,
+  );
 
   if (!channel) {
-    console.warn(
-      `Nie znaleziono kanału Discord: ${config.POKEGLORY_UPDATES_CHANNEL_NAME}`,
-    );
+    warnMissingChannel(mirror.channelName);
     return;
   }
 
   const [updates, existingKeys] = await Promise.all([
-    fetchGameUpdates(),
+    fetchGameUpdates(mirror.kind),
     readExistingUpdateKeys(channel),
   ]);
 
@@ -171,13 +226,16 @@ async function syncGameUpdatesMirror(client: Client) {
     }
 
     await channel.send({
-      embeds: [buildUpdateEmbed(update)],
+      embeds: [buildUpdateEmbed(update, mirror)],
     });
     existingKeys.add(key);
   }
 }
 
-export function startGameUpdatesMirror(client: Client) {
+function startSingleGameUpdatesMirror(
+  client: Client,
+  mirror: GameUpdatesMirrorConfig,
+) {
   let isSyncing = false;
 
   const runSync = async () => {
@@ -188,9 +246,9 @@ export function startGameUpdatesMirror(client: Client) {
     isSyncing = true;
 
     try {
-      await syncGameUpdatesMirror(client);
+      await syncGameUpdatesMirror(client, mirror);
     } catch (error) {
-      console.error("Error syncing game updates mirror:", error);
+      console.error(mirror.errorLabel, error);
     } finally {
       isSyncing = false;
     }
@@ -199,5 +257,27 @@ export function startGameUpdatesMirror(client: Client) {
   void runSync();
   setInterval(() => {
     void runSync();
-  }, getSyncIntervalMs());
+  }, getSyncIntervalMs(mirror.syncIntervalMs));
+}
+
+export function startGameUpdatesMirror(client: Client) {
+  startSingleGameUpdatesMirror(client, {
+    kind: "game-updates",
+    channelId: config.POKEGLORY_UPDATES_CHANNEL_ID,
+    channelName: config.POKEGLORY_UPDATES_CHANNEL_NAME,
+    syncIntervalMs: config.POKEGLORY_UPDATES_SYNC_INTERVAL_MS,
+    color: 0x38bdf8,
+    missingChannelLabel: "aktualizacji",
+    errorLabel: "Error syncing game updates mirror:",
+  });
+
+  startSingleGameUpdatesMirror(client, {
+    kind: "admin-announcements",
+    channelId: config.POKEGLORY_ADMIN_ANNOUNCEMENTS_CHANNEL_ID,
+    channelName: config.POKEGLORY_ADMIN_ANNOUNCEMENTS_CHANNEL_NAME,
+    syncIntervalMs: config.POKEGLORY_ADMIN_ANNOUNCEMENTS_SYNC_INTERVAL_MS,
+    color: 0xf59e0b,
+    missingChannelLabel: "ogłoszeń",
+    errorLabel: "Error syncing admin announcements mirror:",
+  });
 }
