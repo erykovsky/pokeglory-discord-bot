@@ -17,6 +17,7 @@ import { startPlayerEventsMirror } from "./player-events-mirror";
 import { startPlayerRankingMirror } from "./player-ranking-mirror";
 import { startVerifiedRoleSync } from "./verified-role-sync";
 import { sendWelcomeMessage } from "./welcome-messages";
+import { startTicketSystem, ticketPanelCommand } from "./tickets";
 
 const client = new Client({
   intents: [
@@ -42,6 +43,7 @@ client.on("ready", async () => {
     unmuteCommand,
     clearCommand,
     editCommand,
+    ticketPanelCommand,
   ];
 
   await client.application?.commands.set(commands);
@@ -50,6 +52,7 @@ client.on("ready", async () => {
   startPlayerEventsMirror(client);
   startPlayerRankingMirror(client);
   startVerifiedRoleSync(client);
+  startTicketSystem(client);
 });
 
 // Handle slash commands
@@ -74,6 +77,8 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     await clearCommand.execute(interaction);
   } else if (commandName === "edit") {
     await editCommand.execute(interaction);
+  } else if (commandName === "ticket-panel") {
+    await ticketPanelCommand.execute(interaction);
   }
 });
 
