@@ -14,6 +14,7 @@ const RANKING_LIMIT = 25;
 type PlayerRankingEntry = {
   rank: number;
   nick: string;
+  organization?: { tag?: string | null } | null;
   level: number;
   pokemonCount: number;
   totalPokemonValue: number;
@@ -133,7 +134,11 @@ function formatRankingLine(entry: PlayerRankingEntry) {
       : entry.rank === 3
       ? "🥉"
       : `#${entry.rank}`;
-  const nick = escapeMarkdown(entry.nick).slice(0, 80);
+  const nickBase = escapeMarkdown(entry.nick).slice(0, 80);
+  const organizationTag = entry.organization?.tag?.trim();
+  const nick = organizationTag
+    ? nickBase + " [" + escapeMarkdown(organizationTag).slice(0, 16) + "]"
+    : nickBase;
   const points = numberFormatter.format(entry.points);
   const totalPokemonValue = numberFormatter.format(entry.totalPokemonValue);
   const totalItemValue = numberFormatter.format(entry.totalItemValue ?? 0);
