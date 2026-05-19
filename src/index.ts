@@ -15,6 +15,7 @@ import {
 import { startGameUpdatesMirror } from "./game-updates-mirror";
 import { startPlayerEventsMirror } from "./player-events-mirror";
 import { startPlayerRankingMirror } from "./player-ranking-mirror";
+import { startOrganizationRankingMirror } from "./organization-ranking-mirror";
 import { startVerifiedRoleSync } from "./verified-role-sync";
 import { sendWelcomeMessage } from "./welcome-messages";
 import { startTicketSystem, ticketPanelCommand } from "./tickets";
@@ -51,6 +52,7 @@ client.on("ready", async () => {
   startGameUpdatesMirror(client);
   startPlayerEventsMirror(client);
   startPlayerRankingMirror(client);
+  startOrganizationRankingMirror(client);
   startVerifiedRoleSync(client);
   startTicketSystem(client);
 });
