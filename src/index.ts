@@ -1,4 +1,10 @@
-import { Client, GatewayIntentBits, Message, Interaction } from "discord.js";
+import {
+  Client,
+  GatewayIntentBits,
+  Interaction,
+  Message,
+  Partials,
+} from "discord.js";
 import { config } from "./config";
 import linkCommand from "./commands/link";
 import profilCommand from "./commands/profil";
@@ -14,6 +20,7 @@ import {
 } from "./game-chat-mirror";
 import { startGameUpdatesMirror } from "./game-updates-mirror";
 import { startPlayerEventsMirror } from "./player-events-mirror";
+import { startPlayerIdeaReactions } from "./player-idea-reactions";
 import { startPlayerRankingMirror } from "./player-ranking-mirror";
 import { startOrganizationRankingMirror } from "./organization-ranking-mirror";
 import { startVerifiedRoleSync } from "./verified-role-sync";
@@ -25,8 +32,10 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.MessageContent,
   ],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
 
 // Define the specific channel ID where the bot should operate
@@ -48,6 +57,13 @@ client.on("ready", async () => {
   ];
 
   await client.application?.commands.set(commands);
+  startPlayerIdeaReactions(client);
+
+  if (config.POKEGLORY_LOCAL_IDEAS_ONLY) {
+    console.log("Local ideas-only mode enabled; Discord mirrors are disabled.");
+    return;
+  }
+
   startGameChatMirror(client);
   startGameUpdatesMirror(client);
   startPlayerEventsMirror(client);

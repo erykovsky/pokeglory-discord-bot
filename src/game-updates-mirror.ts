@@ -137,12 +137,26 @@ function readUpdateKeyFromEmbed(embed: {
   return `${embed.title.trim()}|${new Date(embed.timestamp).toISOString()}`;
 }
 
+
+function getPublicGameUrl() {
+  return config.POKEGLORY_PUBLIC_URL?.replace(/\/+$/, "") || "https://pokeglory.pl";
+}
+
+function expandPokeGloryLinks(content: string) {
+  const publicUrl = getPublicGameUrl();
+
+  return content.replace(
+    /(^|\s)(\/(?:profil|pokemon|targ|wyzwania-czasowe|turniej-tygodniowy|mundial-2026)[^\s]*)/g,
+    (_match, prefix: string, path: string) => `${prefix}${publicUrl}${path}`,
+  );
+}
+
 function buildUpdateEmbed(update: GameUpdate, mirror: GameUpdatesMirrorConfig) {
   const createdAt = new Date(update.createdAt);
   const embed = new EmbedBuilder()
     .setColor(mirror.color)
     .setTitle(escapeMarkdown(update.title).slice(0, 256))
-    .setDescription(escapeMarkdown(update.content).slice(0, 4096));
+    .setDescription(escapeMarkdown(expandPokeGloryLinks(update.content)).slice(0, 4096));
 
   if (!Number.isNaN(createdAt.getTime())) {
     embed.setTimestamp(createdAt);

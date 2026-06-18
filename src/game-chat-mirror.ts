@@ -13,6 +13,80 @@ const MIRROR_FOOTER_PREFIX = "PokeGlory chat mirror";
 const SLOT_FOOTER_PREFIX = "PokeGlory chat slot";
 const EMPTY_CHAT_DESCRIPTION = "Brak wiadomości.";
 const ORGANIZATION_AD_PREFIX = "ORG_AD|";
+const TRIVIA_IMAGE_TAG = /\[trivia-image:([^\]]+)\]/g;
+
+const DISCORD_CHAT_COMMAND_LINKS = {
+	"/wyzwania-czasowe": `${
+		config.POKEGLORY_API_URL.replace(/\/$/, "")
+	}/wyzwania-czasowe`,
+} satisfies Record<string, string>;
+
+function replaceStandaloneToken(
+	value: string,
+	token: string,
+	replacement: string,
+) {
+	const escapedToken = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+	return value.replace(
+		new RegExp(`(^|\\s)${escapedToken}(?=$|\\s)`, "g"),
+		(_match, prefix: string) => `${prefix}${replacement}`,
+	);
+}
+
+function normalizeTriviaImageUrl(value: string | undefined | null) {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  try {
+    new URL(trimmed);
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
+
+function formatDiscordChatLine(text: string) {
+  const lines = text.split(/\r?\n/);
+  const outputLines: string[] = [];
+
+  for (const line of lines) {
+    const imageUrls = Array.from(line.matchAll(TRIVIA_IMAGE_TAG)).map((match) =>
+      normalizeTriviaImageUrl(match[1]),
+    );
+    const textLine = line.replace(TRIVIA_IMAGE_TAG, "").trim();
+
+    if (textLine) {
+      let linkedLine = textLine;
+
+      for (const [token, href] of Object.entries(DISCORD_CHAT_COMMAND_LINKS)) {
+        linkedLine = replaceStandaloneToken(linkedLine, token, href);
+      }
+
+      outputLines.push(linkedLine);
+    }
+
+    for (const imageUrl of imageUrls) {
+      if (imageUrl) {
+        outputLines.push(imageUrl);
+      }
+    }
+  }
+
+  return outputLines
+    .filter((line, index) => {
+      if (line !== "") {
+        return true;
+      }
+
+      return outputLines[index - 1] !== "";
+    })
+    .join("\n")
+    .trim();
+}
 
 type GameChatMessage = {
   id: number;
@@ -146,7 +220,9 @@ function formatMessageText(message: GameChatMessage) {
   );
 
   if (!organizationAdvertisement) {
-    return escapeMarkdown(message.text.trim() || EMPTY_CHAT_DESCRIPTION);
+    return escapeMarkdown(
+      formatDiscordChatLine(message.text.trim() || EMPTY_CHAT_DESCRIPTION),
+    );
   }
 
   const organizationName = escapeMarkdown(
