@@ -100,21 +100,7 @@ async function fetchStarterMessage(thread: ThreadChannel) {
 }
 
 async function addVotingReactions(message: Message) {
-  for (const emoji of IDEA_REACTIONS) {
-    await message
-      .react(emoji)
-      .then(() => {
-        console.info(
-          `[ideas] Dodano reakcję ${emoji} do wiadomości ${message.id}.`
-        );
-      })
-      .catch((error: unknown) => {
-        console.warn(
-          `[ideas] Nie udało się dodać reakcji ${emoji} do wiadomości ${message.id}:`,
-          error
-        );
-      });
-  }
+  console.info("[ideas] Automatyczne reakcje głosowania są wyłączone.");
 
   return message;
 }
@@ -571,21 +557,7 @@ export function startPlayerIdeaReactions(client: Client) {
     }
   });
 
-  client.on("messageReactionAdd", async (reaction, user) => {
-    await syncIdeaReaction(reaction as MessageReaction, user as User).catch(
-      (error: unknown) => {
-        console.error("[ideas] Błąd synchronizacji dodanej reakcji:", error);
-      }
-    );
-  });
-
-  client.on("messageReactionRemove", async (reaction, user) => {
-    await syncIdeaReaction(reaction as MessageReaction, user as User).catch(
-      (error: unknown) => {
-        console.error("[ideas] Błąd synchronizacji usuniętej reakcji:", error);
-      }
-    );
-  });
+  console.info("[ideas] Synchronizacja reakcji pomysłów i opinii jest wyłączona.");
 
   client.on("messageCreate", async (message) => {
     await importIdeaOpinionMessage(message).catch((error: unknown) => {
