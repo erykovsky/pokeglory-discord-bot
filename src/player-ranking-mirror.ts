@@ -9,7 +9,7 @@ import {
 import { config } from "./config";
 
 const RANKING_FOOTER_PREFIX = "PokeGlory ranking";
-const RANKING_LIMIT = 25;
+const RANKING_LIMIT = 50;
 
 type PlayerRankingEntry = {
   rank: number;
@@ -17,9 +17,6 @@ type PlayerRankingEntry = {
   organization?: { tag?: string | null } | null;
   level: number;
   pokemonCount: number;
-  totalPokemonValue: number;
-  totalItemValue?: number;
-  totalRankingValue?: number;
   points: number;
 };
 
@@ -140,15 +137,9 @@ function formatRankingLine(entry: PlayerRankingEntry) {
     ? nickBase + " [" + escapeMarkdown(organizationTag).slice(0, 16) + "]"
     : nickBase;
   const points = numberFormatter.format(entry.points);
-  const totalPokemonValue = numberFormatter.format(entry.totalPokemonValue);
-  const totalItemValue = numberFormatter.format(entry.totalItemValue ?? 0);
-  const totalRankingValue = numberFormatter.format(
-    entry.totalRankingValue ??
-      entry.totalPokemonValue + (entry.totalItemValue ?? 0)
-  );
   const pokemonCount = numberFormatter.format(entry.pokemonCount);
 
-  return `${medal} **${nick}** · ${points} pkt · lvl ${entry.level} · ${pokemonCount} Pokémonów · razem ${totalRankingValue} ¥ · Pokémony ${totalPokemonValue} ¥ · przedmioty ${totalItemValue} ¥`;
+  return `${medal} **${nick}** · ${points} pkt · lvl ${entry.level} · ${pokemonCount} Pokémonów`;
 }
 
 function buildRankingEmbed(

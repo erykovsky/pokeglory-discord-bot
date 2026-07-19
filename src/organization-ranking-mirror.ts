@@ -9,7 +9,7 @@ import {
 import { config } from "./config";
 
 const ORGANIZATION_RANKING_FOOTER_PREFIX = "PokeGlory ranking organizacji";
-const RANKING_LIMIT = 25;
+const RANKING_LIMIT = 50;
 
 type OrganizationRankingEntry = {
   rank: number;
