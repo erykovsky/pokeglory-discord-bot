@@ -52,7 +52,7 @@ function buildWelcomeEmbed(member: GuildMember) {
     .setDescription(
       `${member} właśnie wylądował(a). — ${formatJoinedAt(
         new Date()
-      )}\n\nPomachaj, aby się przywitać!`
+      )}\n\nPołącz konto w ciągu **30 minut**. W grze otwórz **Ustawienia → Konto → Połączenie z Discordem**, wygeneruj kod i wpisz tutaj **/link**. Do czasu weryfikacji widzisz tylko lobby.`
     )
     .setThumbnail(member.user.displayAvatarURL({ size: 256 }));
 }

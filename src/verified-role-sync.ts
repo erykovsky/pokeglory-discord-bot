@@ -7,6 +7,10 @@ import {
   resolveGuestRoleForGuild,
   resolveVerifiedRoleForGuild,
 } from "./verified-role";
+import {
+  configureGuildAccess,
+  removeExpiredUnlinkedMembers,
+} from "./member-access";
 
 type LinkedAccountsResponse = {
   ok?: boolean;
@@ -30,21 +34,24 @@ async function fetchLinkedDiscordIds() {
   }
 
   const response = await fetch(
-    `${config.POKEGLORY_API_URL.replace(/\/$/, "")}/api/discord/linked-accounts`,
+    `${config.POKEGLORY_API_URL.replace(
+      /\/$/,
+      ""
+    )}/api/discord/linked-accounts`,
     {
       headers: {
         "x-discord-bot-secret": config.POKEGLORY_DISCORD_BOT_SECRET,
       },
-    },
+    }
   );
 
-  const result = (await response.json().catch(() => null)) as
-    | LinkedAccountsResponse
-    | null;
+  const result = (await response
+    .json()
+    .catch(() => null)) as LinkedAccountsResponse | null;
 
   if (!response.ok || !result?.ok || !Array.isArray(result.accounts)) {
     throw new Error(
-      result?.message ?? `Linked accounts endpoint returned ${response.status}`,
+      result?.message ?? `Linked accounts endpoint returned ${response.status}`
     );
   }
 
@@ -59,7 +66,10 @@ async function resolveSyncGuild(client: Client) {
   return client.guilds.cache.first() ?? null;
 }
 
-async function syncVerifiedRolesInGuild(guild: Guild, linkedDiscordIds: Set<string>) {
+async function syncVerifiedRolesInGuild(
+  guild: Guild,
+  linkedDiscordIds: Set<string>
+) {
   const role = await resolveVerifiedRoleForGuild(guild);
   const guestRole = await resolveGuestRoleForGuild(guild);
 
@@ -104,7 +114,7 @@ async function syncVerifiedRolesInGuild(guild: Guild, linkedDiscordIds: Set<stri
 
     await member.roles.remove(
       freshRole,
-      "Konto PokeGlory zostało odłączone od Discorda.",
+      "Konto PokeGlory zostało odłączone od Discorda."
     );
 
     await assignGuestRoleToMember(member);
@@ -123,7 +133,7 @@ async function syncVerifiedRolesInGuild(guild: Guild, linkedDiscordIds: Set<stri
 
     await member.roles.remove(
       freshGuestRole,
-      "Konto PokeGlory zostało połączone.",
+      "Konto PokeGlory zostało połączone."
     );
   }
 }
@@ -138,10 +148,12 @@ async function syncVerifiedRoles(client: Client) {
 
   const linkedDiscordIds = await fetchLinkedDiscordIds();
   await syncVerifiedRolesInGuild(guild, linkedDiscordIds);
+  await removeExpiredUnlinkedMembers(guild, linkedDiscordIds);
 }
 
 export function startVerifiedRoleSync(client: Client) {
   let isSyncing = false;
+  let isAccessConfigured = false;
 
   const runSync = async () => {
     if (isSyncing) {
@@ -151,6 +163,15 @@ export function startVerifiedRoleSync(client: Client) {
     isSyncing = true;
 
     try {
+      if (!isAccessConfigured) {
+        const guild = await resolveSyncGuild(client);
+
+        if (guild) {
+          await configureGuildAccess(guild);
+          isAccessConfigured = true;
+        }
+      }
+
       await syncVerifiedRoles(client);
     } catch (error) {
       console.error("Error syncing verified Discord roles:", error);
