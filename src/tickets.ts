@@ -18,22 +18,12 @@ import { config } from "./config";
 
 const OPEN_TICKET_BUTTON_ID = "pokeglory-ticket:open";
 const CLOSE_TICKET_BUTTON_ID = "pokeglory-ticket:close";
-const TICKET_NAME_PREFIX = "ticket";
+const TICKET_NAME_PREFIX = "blad";
+const LEGACY_TICKET_NAME_PREFIX = "ticket";
 const CLOSED_TICKET_NAME_PREFIX = "zamkniety";
 
 let ticketCreationQueue = Promise.resolve();
 let ticketSystemStarted = false;
-
-function parseRoleIds(value: string | undefined) {
-  return (value ?? "")
-    .split(",")
-    .map((roleId) => roleId.trim())
-    .filter((roleId) => /^\d{16,32}$/.test(roleId));
-}
-
-function getTicketNotifyRoleIds() {
-  return parseRoleIds(config.DISCORD_TICKET_NOTIFY_ROLE_IDS);
-}
 
 function formatTicketNumber(value: number) {
   return value.toString().padStart(6, "0");
@@ -75,7 +65,7 @@ function buildOpenTicketButton() {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(OPEN_TICKET_BUTTON_ID)
-      .setLabel("Utwórz ticket")
+      .setLabel("Zgłoś błąd")
       .setStyle(ButtonStyle.Primary)
   );
 }
@@ -84,33 +74,33 @@ function buildCloseTicketButton() {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(CLOSE_TICKET_BUTTON_ID)
-      .setLabel("Zamknij ticket")
+      .setLabel("Zamknij zgłoszenie")
       .setStyle(ButtonStyle.Danger)
   );
 }
 
 function buildTicketPanelEmbed() {
   return new EmbedBuilder()
-    .setTitle("Tickety PokeGlory")
+    .setTitle("Zgłaszanie błędów PokeGlory")
     .setDescription(
       [
-        "Kliknij przycisk poniżej, żeby utworzyć prywatny ticket do administracji.",
-        "Kanał zobaczysz tylko Ty, bot oraz wyznaczone role administracyjne.",
+        "Znalazłeś błąd w grze? Kliknij przycisk poniżej i dokładnie opisz problem.",
+        "Utworzone zgłoszenie będzie widoczne tylko dla Ciebie oraz administratora gry.",
       ].join("\n")
     )
-    .setColor(0x5d8cff);
+    .setColor(0xef4444);
 }
 
 function buildTicketWelcomeEmbed(ticketNumber: number, member: GuildMember) {
   return new EmbedBuilder()
-    .setTitle(`Ticket #${formatTicketNumber(ticketNumber)}`)
+    .setTitle(`Zgłoszenie błędu #${formatTicketNumber(ticketNumber)}`)
     .setDescription(
       [
-        `${member}, opisz sprawę możliwie dokładnie.`,
-        "Administracja odpowie, gdy będzie dostępna.",
+        `${member}, opisz błąd i dodaj screen lub nagranie, jeśli je masz.`,
+        "Administrator sprawdzi zgłoszenie, gdy będzie dostępny.",
       ].join("\n")
     )
-    .setColor(0x5d8cff)
+    .setColor(0xef4444)
     .addFields(
       {
         name: "Zgłaszający",
@@ -119,7 +109,7 @@ function buildTicketWelcomeEmbed(ticketNumber: number, member: GuildMember) {
       },
       {
         name: "Status",
-        value: "Otwarty",
+        value: "Oczekuje na sprawdzenie",
         inline: true,
       }
     )
@@ -185,7 +175,7 @@ async function getNextTicketNumber(guild: Guild) {
   for (const channel of channels.values()) {
     const match = channel.name.match(
       new RegExp(
-        `^(?:${TICKET_NAME_PREFIX}|${CLOSED_TICKET_NAME_PREFIX})-(\\d+)$`
+        `^(?:${TICKET_NAME_PREFIX}|${LEGACY_TICKET_NAME_PREFIX}|${CLOSED_TICKET_NAME_PREFIX})-(\\d+)$`
       )
     );
     const ticketNumber = match ? Number(match[1]) : Number.NaN;
@@ -208,7 +198,9 @@ async function createTicketChannel(interaction: ButtonInteraction) {
   const guild = interaction.guild;
 
   if (!guild) {
-    await interaction.editReply("Tickety działają tylko na serwerze Discord.");
+    await interaction.editReply(
+      "Zgłoszenia działają tylko na serwerze Discord."
+    );
     return;
   }
 
@@ -216,15 +208,8 @@ async function createTicketChannel(interaction: ButtonInteraction) {
   const existingTicket = await findOpenTicketForMember(guild, member.id);
 
   if (existingTicket) {
-    await interaction.editReply(`Masz już otwarty ticket: ${existingTicket}.`);
-    return;
-  }
-
-  const notifyRoleIds = getTicketNotifyRoleIds();
-
-  if (notifyRoleIds.length === 0) {
     await interaction.editReply(
-      "Brak DISCORD_TICKET_NOTIFY_ROLE_IDS w konfiguracji bota."
+      `Masz już otwarte zgłoszenie: ${existingTicket}.`
     );
     return;
   }
@@ -247,7 +232,7 @@ async function createTicketChannel(interaction: ButtonInteraction) {
       ownerId: member.id,
       status: "open",
     }),
-    reason: `Ticket #${formattedTicketNumber} utworzony przez ${member.user.tag}.`,
+    reason: `Zgłoszenie błędu #${formattedTicketNumber} utworzone przez ${member.user.tag}.`,
     permissionOverwrites: [
       {
         id: guild.id,
@@ -263,16 +248,6 @@ async function createTicketChannel(interaction: ButtonInteraction) {
           PermissionFlagsBits.EmbedLinks,
         ],
       },
-      ...notifyRoleIds.map((roleId) => ({
-        id: roleId,
-        allow: [
-          PermissionFlagsBits.ViewChannel,
-          PermissionFlagsBits.SendMessages,
-          PermissionFlagsBits.ReadMessageHistory,
-          PermissionFlagsBits.AttachFiles,
-          PermissionFlagsBits.EmbedLinks,
-        ],
-      })),
       {
         id: botUserId,
         allow: [
@@ -285,12 +260,9 @@ async function createTicketChannel(interaction: ButtonInteraction) {
     ],
   });
 
-  const roleMentions = notifyRoleIds.map((roleId) => `<@&${roleId}>`).join(" ");
-
   await ticketChannel.send({
-    content: `${roleMentions}\nNowy ticket od ${member}.`,
+    content: `Nowe zgłoszenie błędu od ${member}.`,
     allowedMentions: {
-      roles: notifyRoleIds,
       users: [member.id],
     },
     embeds: [buildTicketWelcomeEmbed(ticketNumber, member)],
@@ -298,7 +270,7 @@ async function createTicketChannel(interaction: ButtonInteraction) {
   });
 
   await interaction.editReply(
-    `Utworzono ticket #${formattedTicketNumber}: ${ticketChannel}.`
+    `Utworzono zgłoszenie #${formattedTicketNumber}: ${ticketChannel}.`
   );
 }
 
@@ -307,18 +279,19 @@ async function closeTicketChannel(interaction: ButtonInteraction) {
   const guild = interaction.guild;
 
   if (!guild || !isTicketTextChannel(channel)) {
-    await interaction.editReply("Ten przycisk działa tylko w kanale ticketa.");
+    await interaction.editReply(
+      "Ten przycisk działa tylko w kanale zgłoszenia."
+    );
     return;
   }
 
   const member = await guild.members.fetch(interaction.user.id);
-  const notifyRoleIds = getTicketNotifyRoleIds();
-  const canCloseTicket =
-    interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) ||
-    notifyRoleIds.some((roleId) => member.roles.cache.has(roleId));
+  const canCloseTicket = interaction.memberPermissions?.has(
+    PermissionFlagsBits.Administrator
+  );
 
   if (!canCloseTicket) {
-    await interaction.editReply("Tylko administracja może zamknąć ticket.");
+    await interaction.editReply("Tylko administrator może zamknąć zgłoszenie.");
     return;
   }
 
@@ -340,7 +313,7 @@ async function closeTicketChannel(interaction: ButtonInteraction) {
           ReadMessageHistory: true,
         },
         {
-          reason: `Ticket #${formattedTicketId} zamknięty przez ${member.user.tag}.`,
+          reason: `Zgłoszenie #${formattedTicketId} zamknięte przez ${member.user.tag}.`,
         }
       )
       .catch(() => undefined);
@@ -352,13 +325,13 @@ async function closeTicketChannel(interaction: ButtonInteraction) {
     .catch(() => undefined);
 
   await channel.send({
-    content: `Ticket #${formattedTicketId} został zamknięty przez ${member}.`,
+    content: `Zgłoszenie #${formattedTicketId} zostało zamknięte przez ${member}.`,
     allowedMentions: {
       users: [member.id],
     },
   });
 
-  await interaction.editReply(`Zamknięto ticket #${formattedTicketId}.`);
+  await interaction.editReply(`Zamknięto zgłoszenie #${formattedTicketId}.`);
 }
 
 export async function handleTicketInteraction(interaction: Interaction) {
@@ -383,8 +356,8 @@ export async function handleTicketInteraction(interaction: Interaction) {
 
 export const ticketPanelCommand = {
   name: "ticket-panel",
-  description: "Wysyła panel do tworzenia prywatnych ticketów.",
-  default_member_permissions: PermissionFlagsBits.ManageChannels.toString(),
+  description: "Wysyła panel do tworzenia prywatnych zgłoszeń błędów.",
+  default_member_permissions: PermissionFlagsBits.Administrator.toString(),
   async execute(interaction: ChatInputCommandInteraction) {
     if (!interaction.guild) {
       await interaction.reply({
@@ -395,10 +368,10 @@ export const ticketPanelCommand = {
     }
 
     if (
-      !interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)
+      !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
     ) {
       await interaction.reply({
-        content: "Nie masz uprawnień do wysłania panelu ticketów.",
+        content: "Nie masz uprawnień do wysłania panelu zgłoszeń.",
         ephemeral: true,
       });
       return;
@@ -423,13 +396,21 @@ export const ticketPanelCommand = {
       return;
     }
 
+    await targetChannel.permissionOverwrites.edit(interaction.guild.id, {
+      ViewChannel: true,
+      ReadMessageHistory: true,
+      SendMessages: false,
+      CreatePublicThreads: false,
+      CreatePrivateThreads: false,
+    });
+
     await targetChannel.send({
       embeds: [buildTicketPanelEmbed()],
       components: [buildOpenTicketButton()],
     });
 
     await interaction.reply({
-      content: `Panel ticketów wysłany na ${targetChannel}.`,
+      content: `Panel zgłoszeń błędów wysłany na ${targetChannel}.`,
       ephemeral: true,
     });
   },
@@ -446,10 +427,6 @@ export function startTicketSystem(client: Client) {
     console.warn("[tickets] Brak DISCORD_TICKET_CATEGORY_ID.");
   }
 
-  if (getTicketNotifyRoleIds().length === 0) {
-    console.warn("[tickets] Brak DISCORD_TICKET_NOTIFY_ROLE_IDS.");
-  }
-
   client.on("interactionCreate", async (interaction) => {
     try {
       await handleTicketInteraction(interaction);
@@ -463,13 +440,13 @@ export function startTicketSystem(client: Client) {
       ) {
         await interaction.reply({
           content:
-            "Nie udało się obsłużyć ticketa. Spróbuj ponownie za chwilę.",
+            "Nie udało się obsłużyć zgłoszenia. Spróbuj ponownie za chwilę.",
           ephemeral: true,
         });
       } else if (interaction.isRepliable()) {
         await interaction
           .editReply(
-            "Nie udało się obsłużyć ticketa. Spróbuj ponownie za chwilę."
+            "Nie udało się obsłużyć zgłoszenia. Spróbuj ponownie za chwilę."
           )
           .catch(() => undefined);
       }
