@@ -5,11 +5,13 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   addContestXp,
+  drawDuelPokemon,
   drawDuels,
   EMPTY_ACTIVITY,
   getContestEligibility,
   getContestLevel,
   getContestWeek,
+  getDuelWinChance,
   getScheduleSlot,
   getWeeklyXp,
   normalizePokemonGuess,
@@ -129,6 +131,51 @@ test("a saved weekly draw resets weekly XP once and preserves the winner through
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
+});
+
+test("rarity tiers are drawn at the intended rates", () => {
+  const totals: Record<string, number> = {};
+  for (let ticket = 0; ticket < 1000; ticket++) {
+    const pokemon = drawDuelPokemon((limit) => (limit === 1000 ? ticket : 0));
+    totals[pokemon.rarity] = (totals[pokemon.rarity] ?? 0) + 1;
+  }
+  assert.deepEqual(totals, {
+    Common: 620,
+    Uncommon: 230,
+    Rare: 90,
+    "Ultra Rare": 40,
+    Epic: 14,
+    Legendary: 5,
+    Mythical: 1,
+  });
+});
+
+test("rarer Pokémon have an advantage and the underdog can still win", () => {
+  const common = drawDuelPokemon(() => 0);
+  const rare = drawDuelPokemon((limit) => (limit === 1000 ? 850 : 0));
+  const mythical = drawDuelPokemon((limit) => (limit === 1000 ? 999 : 0));
+  assert.equal(getDuelWinChance(common, common), 50);
+  assert.equal(getDuelWinChance(rare, common), 60);
+  assert.equal(getDuelWinChance(mythical, common), 75);
+  assert.equal(getDuelWinChance(common, mythical), 25);
+
+  const match = (result: number) => {
+    const rolls = [0, 0, 850, 0, 1, result];
+    const duel = drawDuels(["one", "two"], () => rolls.shift()!);
+    assert.deepEqual(duel.pokemon, { one: common, two: rare });
+    assert.equal(rolls.length, 0);
+    return duel.rounds[0][0];
+  };
+  assert.deepEqual(match(39), {
+    winner: "one",
+    eliminated: "two",
+    winnerWinChance: 40,
+  });
+  assert.deepEqual(match(40), {
+    winner: "two",
+    eliminated: "one",
+    winnerWinChance: 60,
+  });
 });
 
 test("duels eliminate every entrant except the winner, including odd groups", () => {

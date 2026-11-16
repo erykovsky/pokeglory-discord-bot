@@ -9,7 +9,13 @@ import {
 } from "./rules";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Activity, ContestKind, ScheduledContest } from "./rules";
+import type {
+  Activity,
+  ContestKind,
+  DuelMatch,
+  DuelPokemon,
+  ScheduledContest,
+} from "./rules";
 
 export type Reward = { currency: "yen" | "pz"; amount: number };
 
@@ -30,8 +36,8 @@ export type Contest = {
   };
   pokemon?: { name: string; imageUrl: string };
   winner?: string | null;
-  rounds?: ReturnType<typeof drawDuels>["rounds"];
-  duelPokemon?: Record<string, string>;
+  rounds?: DuelMatch[][];
+  duelPokemon?: Record<string, DuelPokemon | string>;
   paid?: boolean;
   published?: boolean;
   displayedEntries?: number;

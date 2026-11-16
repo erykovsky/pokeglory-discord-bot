@@ -58,26 +58,112 @@ export const NUMBER_HINT_AFTER = 5 * minute;
 export const POKEMON_XP = 15;
 export const DUEL_XP = 10;
 
-const duelPokemon = [
-  "Bulbasaur",
-  "Charmander",
-  "Squirtle",
-  "Pikachu",
-  "Eevee",
-  "Jigglypuff",
-  "Psyduck",
-  "Meowth",
-  "Growlithe",
-  "Machop",
-  "Poliwag",
-  "Abra",
-  "Geodude",
-  "Gastly",
-  "Cubone",
-  "Staryu",
-  "Dratini",
-  "Snorlax",
-];
+const duelPokemonTiers = [
+  {
+    rarity: "Common",
+    weight: 620,
+    species: [
+      "Bulbasaur",
+      "Charmander",
+      "Squirtle",
+      "Pikachu",
+      "Jigglypuff",
+      "Psyduck",
+      "Meowth",
+      "Poliwag",
+      "Geodude",
+    ],
+  },
+  {
+    rarity: "Uncommon",
+    weight: 230,
+    species: [
+      "Eevee",
+      "Growlithe",
+      "Machop",
+      "Abra",
+      "Gastly",
+      "Cubone",
+      "Staryu",
+    ],
+  },
+  {
+    rarity: "Rare",
+    weight: 90,
+    species: [
+      "Raichu",
+      "Gengar",
+      "Alakazam",
+      "Lapras",
+      "Scyther",
+      "Aerodactyl",
+    ],
+  },
+  {
+    rarity: "Ultra Rare",
+    weight: 40,
+    species: ["Arcanine", "Gyarados", "Snorlax", "Dragonair"],
+  },
+  {
+    rarity: "Epic",
+    weight: 14,
+    species: ["Dragonite", "Charizard", "Blastoise", "Venusaur"],
+  },
+  {
+    rarity: "Legendary",
+    weight: 5,
+    species: ["Articuno", "Zapdos", "Moltres", "Mewtwo"],
+  },
+  { rarity: "Mythical", weight: 1, species: ["Mew"] },
+] as const;
+
+type DuelRarity = (typeof duelPokemonTiers)[number]["rarity"];
+
+export type DuelPokemon = {
+  name: string;
+  rarity: DuelRarity;
+};
+
+export type DuelMatch = {
+  winner: string;
+  eliminated: string;
+  winnerWinChance?: number;
+};
+
+const duelRarityWeight = duelPokemonTiers.reduce(
+  (sum, tier) => sum + tier.weight,
+  0
+);
+
+export function drawDuelPokemon(roll = randomInt): DuelPokemon {
+  let ticket = roll(duelRarityWeight);
+  for (const tier of duelPokemonTiers) {
+    if (ticket < tier.weight) {
+      return {
+        name: tier.species[roll(tier.species.length)],
+        rarity: tier.rarity,
+      };
+    }
+    ticket -= tier.weight;
+  }
+  throw new RangeError("Nieprawidłowy wynik losowania Pokémona.");
+}
+
+export const MAX_DUEL_WIN_CHANCE = 75;
+
+export function getDuelWinChance(first: DuelPokemon, second: DuelPokemon) {
+  const firstRank = duelPokemonTiers.findIndex(
+    (tier) => tier.rarity === first.rarity
+  );
+  const secondRank = duelPokemonTiers.findIndex(
+    (tier) => tier.rarity === second.rarity
+  );
+  const chance = 50 + (firstRank - secondRank) * 5;
+  return Math.min(
+    MAX_DUEL_WIN_CHANCE,
+    Math.max(100 - MAX_DUEL_WIN_CHANCE, chance)
+  );
+}
 
 export function getContestLevel(xp: number) {
   return 1 + Math.floor(Math.sqrt(xp / 40));
@@ -128,13 +214,16 @@ export function numberHint(target: number, max: number) {
 }
 
 export function drawDuels(entries: string[], roll = randomInt) {
+  const pokemon = Object.fromEntries(
+    entries.map((player) => [player, drawDuelPokemon(roll)])
+  );
   const players = [...entries];
   for (let index = players.length - 1; index > 0; index--) {
     const other = roll(index + 1);
     [players[index], players[other]] = [players[other], players[index]];
   }
 
-  const rounds: Array<Array<{ winner: string; eliminated: string }>> = [];
+  const rounds: DuelMatch[][] = [];
   let remaining = players;
   while (remaining.length > 1) {
     const round: (typeof rounds)[number] = [];
@@ -144,22 +233,26 @@ export function drawDuels(entries: string[], roll = randomInt) {
       if (pair.length === 1) {
         advanced.push(pair[0]);
       } else {
-        const picked = roll(2);
-        advanced.push(pair[picked]);
-        round.push({ winner: pair[picked], eliminated: pair[1 - picked] });
+        const firstChance = getDuelWinChance(
+          pokemon[pair[0]],
+          pokemon[pair[1]]
+        );
+        const firstWins = roll(100) < firstChance;
+        const winner = firstWins ? pair[0] : pair[1];
+        const eliminated = firstWins ? pair[1] : pair[0];
+        advanced.push(winner);
+        round.push({
+          winner,
+          eliminated,
+          winnerWinChance: firstWins ? firstChance : 100 - firstChance,
+        });
       }
     }
     rounds.push(round);
     remaining = advanced;
   }
 
-  return {
-    winner: remaining[0] ?? null,
-    rounds,
-    pokemon: Object.fromEntries(
-      entries.map((player) => [player, duelPokemon[roll(duelPokemon.length)]])
-    ),
-  };
+  return { winner: remaining[0] ?? null, rounds, pokemon };
 }
 
 export const SCHEDULED_CONTESTS = [

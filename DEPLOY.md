@@ -40,6 +40,9 @@ Mirror aktualizacji gry domyślnie szuka kanału `📢｜aktualizacje`; można g
    To przykładowe wartości do ustalenia przez administrację. Brak nagrody w konfiguracji
    oznacza, że bot nie otworzy danego losowania. Turniej pojedynków przyznaje
    po 10 XP obojgu graczom za rozegrany pojedynek, a zgadywanie Pokémona przyznaje 15 XP.
+   Każdy gracz otrzymuje jednego Pokémona na cały turniej. Rzadkość jest losowana
+   przed gatunkiem. Każdy stopień różnicy daje rzadszemu Pokémonowi 5 punktów
+   procentowych przewagi od bazowych 50%, maksymalnie do 75%.
 3. Przygotuj osobną kategorię Discord dla konkursów poza
    `POKEGLORY_PROTECTED_CATEGORY_IDS`, żeby synchronizacja uprawnień dostępu do gry
    nie nadpisywała blokad poziomu. W kanałach o wymaganym poziomie

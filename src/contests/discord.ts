@@ -19,6 +19,7 @@ import { config } from "../config";
 import {
   CONTEST_RULES,
   type ContestKind,
+  type DuelMatch,
   type ScheduledContest,
   DUEL_XP,
   EMPTY_ACTIVITY,
@@ -28,6 +29,7 @@ import {
   getScheduleSlot,
   getWeeklyXp,
   GUESS_COOLDOWN,
+  MAX_DUEL_WIN_CHANCE,
   normalizePokemonGuess,
   NUMBER_HINT_AFTER,
   numberHint,
@@ -42,6 +44,8 @@ import {
 } from "./store";
 
 const PREFIX = "pg-contest:";
+// Room for both Pokémon, rarity labels and odds in Discord’s 4096-character embed.
+const MAX_INLINE_DUEL_ENTRIES = 30;
 const kinds = Object.keys(CONTEST_RULES) as ContestKind[];
 const formatNumber = new Intl.NumberFormat("pl-PL");
 
@@ -182,18 +186,20 @@ function hasSignups(event: Contest) {
   return event.kind !== "numbers" && event.kind !== "pokemon";
 }
 
-function describeDuel(
-  event: Contest,
-  winner: string,
-  eliminated: string,
-  mentions: boolean
-) {
+function describeDuel(event: Contest, duel: DuelMatch, mentions: boolean) {
   const display = (id: string) => {
     const player = mentions ? `<@${id}>` : id;
     const pokemon = event.duelPokemon?.[id];
-    return pokemon ? `${player} (${pokemon})` : player;
+    if (!pokemon) return player;
+    const label =
+      typeof pokemon === "string"
+        ? pokemon
+        : `${pokemon.name}, ${pokemon.rarity}`;
+    return `${player} (${label})`;
   };
-  return `${display(winner)} pokonał ${display(eliminated)}.`;
+  const chance = duel.winnerWinChance;
+  const odds = chance === undefined ? "" : ` · ${chance}% do ${100 - chance}%`;
+  return `${display(duel.winner)} pokonał ${display(duel.eliminated)}${odds}.`;
 }
 
 function buildCard(event: Contest, now: number) {
@@ -220,15 +226,13 @@ function buildCard(event: Contest, now: number) {
     if (event.pokemon) description.push(`**To był** ${event.pokemon.name}`);
     if (event.rounds?.length) {
       description.push(`**Uczestnicy** ${event.entries.length}`);
-      if (event.entries.length > 40) {
+      if (event.entries.length > MAX_INLINE_DUEL_ENTRIES) {
         description.push("Lista uczestników i wyniki rund są w załączniku.");
       } else {
         for (const [index, round] of event.rounds.entries()) {
           description.push(
             `**Runda ${index + 1}**`,
-            ...round.map((duel) =>
-              describeDuel(event, duel.winner, duel.eliminated, true)
-            )
+            ...round.map((duel) => describeDuel(event, duel, true))
           );
         }
       }
@@ -238,7 +242,8 @@ function buildCard(event: Contest, now: number) {
     if (hasSignups(event)) {
       if (event.kind === "games") {
         description.push(
-          "RotomBot przydzieli Ci losowego Pokémona na cały turniej. Potem losuje pary i wyniki. Zwycięzca przechodzi dalej.",
+          "RotomBot przydzieli Ci losowego Pokémona na cały turniej i dobierze pary 1 na 1.",
+          `Rzadszy Pokémon ma większą szansę wygrać, maksymalnie ${MAX_DUEL_WIN_CHANCE}%. Zwycięzca przechodzi dalej.`,
           "Jeden rozegrany pojedynek odblokowuje dzienne losowania do końca tygodnia."
         );
       } else if (event.kind === "daily") {
@@ -354,12 +359,13 @@ export function startContestSystem(
     const channel = await getChannel(event.channelId);
     const current = store.read().contests[event.id];
     const card = buildCard(current, Date.now());
-    if (current.rounds?.length && current.entries.length > 40) {
+    if (
+      current.rounds?.length &&
+      current.entries.length > MAX_INLINE_DUEL_ENTRIES
+    ) {
       const rounds = current.rounds.flatMap((round, index) => [
         `Runda ${index + 1}`,
-        ...round.map((duel) =>
-          describeDuel(current, duel.winner, duel.eliminated, false)
-        ),
+        ...round.map((duel) => describeDuel(current, duel, false)),
       ]);
       const report = [
         "Identyfikatory Discord zapisanych uczestników",
