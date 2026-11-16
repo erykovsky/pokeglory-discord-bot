@@ -35,10 +35,11 @@ Mirror aktualizacji gry domyślnie szuka kanału `📢｜aktualizacje`; można g
 1. W grze zastosuj kompatybilną migrację tabeli `discord_contests` lub `db:push`
    i wdroż endpoint `/api/discord/contests` przed przełączeniem bota.
 2. W konfiguracji **gry** ustaw `DISCORD_CONTEST_REWARDS` jako obiekt JSON.
-   Klucze to `daily`, `weekly`, `monthly`, `games` i `numbers`. Wartość to
+   Klucze to `daily`, `weekly`, `monthly` i `numbers`. Wartość to
    `{"currency":"yen","amount":50000}` albo `{"currency":"pz","amount":10}`.
    To przykładowe wartości do ustalenia przez administrację. Brak nagrody w konfiguracji
-   oznacza, że bot nie otworzy danego konkursu. Zgadywanie Pokémona przyznaje 15 XP na Discordzie.
+   oznacza, że bot nie otworzy danego losowania. Turniej pojedynków przyznaje
+   po 10 XP obojgu graczom za rozegrany pojedynek, a zgadywanie Pokémona przyznaje 15 XP.
 3. Przygotuj osobną kategorię Discord dla konkursów poza
    `POKEGLORY_PROTECTED_CATEGORY_IDS`, żeby synchronizacja uprawnień dostępu do gry
    nie nadpisywała blokad poziomu. W kanałach o wymaganym poziomie
@@ -47,20 +48,21 @@ Mirror aktualizacji gry domyślnie szuka kanału `📢｜aktualizacje`; można g
    rolami poziomu. Role poziomu umieść poniżej roli bota.
 4. W konfiguracji **bota** ustaw `POKEGLORY_GUILD_ID`, istniejący sekret i
    `POKEGLORY_CONTESTS`. Obiekt zawiera pola:
-   - `xpChannels` z ID kanałów rozmów, na których można zdobywać XP.
    - `channels` z ID kanałów dla wybranych rodzajów. Dostępne klucze to `daily`,
      `weekly`, `monthly`, `games`, `numbers` i `pokemon`. Pominięcie klucza
-     wyłącza dany rodzaj. Zgadywanki potrzebują osobnych kanałów.
+     wyłącza dany rodzaj. Losowanie dzienne wymaga również ustawienia
+     `games`. Oba mogą korzystać z tego samego kanału. Zgadywanki potrzebują osobnych kanałów.
    - `levelRoles` z parami poziom i ID roli. Przykładowe poziomy to `2` dla kanału
      tygodniowego i `3` dla miesięcznego. Bot przyznaje role wraz z postępem.
    - `automatic` jako `true` dla losowego startu między 14:00 a 21:00 czasu
-     warszawskiego. Dzienny konkurs i zgadywanie Pokémona mogą zacząć się codziennie,
-     tygodniowy w niedzielę, a miesięczny ostatniego dnia miesiąca. Administrator
-     może uruchomić dowolny aktywny rodzaj komendą `/konkurs`.
-5. Po przełączeniu bota gracze używają `/aktywnosc` do podglądu poziomu i XP.
-   Bot przyznaje 5 XP za kwalifikującą się wiadomość najwyżej raz na minutę,
-   pomija krótkie wiadomości i bezpośrednie powtórki. Tygodniowy XP resetuje się
-   po zakończeniu konkursu tygodniowego.
+     warszawskiego. Losowanie dzienne startuje po zamknięciu turnieju i zapisaniu
+     wyników. Zgadywanie Pokémona może zacząć się codziennie, losowanie tygodniowe
+     w niedzielę, a miesięczne ostatniego dnia miesiąca. Administrator może
+     uruchomić dowolny aktywny rodzaj komendą `/konkurs`.
+5. Gracze używają `/aktywnosc` do podglądu poziomu, XP i statusu pojedynku
+   w tym tygodniu. Co najmniej jeden rozegrany pojedynek wystarcza do dziennych
+   losowań do najbliższego poniedziałku czasu warszawskiego. Wiadomości na czacie
+   nie dają XP. Poprzedni łączny XP pozostaje zapisany.
 
 Zachowaj wolumen `./data:/app/data`, w którym jest plik `contests.json`.
 Przechowuje aktywność, zapisy i wynik w trakcie wypłaty. Uruchamiaj jedną

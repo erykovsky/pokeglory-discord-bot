@@ -1,4 +1,4 @@
-import { createHash, randomInt } from "node:crypto";
+import { randomInt } from "node:crypto";
 
 const minute = 60_000;
 export const CONTEST_RULES = {
@@ -6,7 +6,7 @@ export const CONTEST_RULES = {
     title: "Losowanie dzienne",
     duration: 5 * minute,
     level: 1,
-    weeklyXp: 10,
+    weeklyXp: 0,
   },
   weekly: {
     title: "Losowanie tygodniowe",
@@ -45,57 +45,72 @@ export type ContestKind = keyof typeof CONTEST_RULES;
 export type Activity = {
   totalXp: number;
   weeklyXp: number;
-  lastMessageAt: number;
-  lastFingerprint?: string;
+  xpWeek?: string;
+  lastDuelWeek?: string;
 };
 
 export const EMPTY_ACTIVITY: Activity = {
   totalXp: 0,
   weeklyXp: 0,
-  lastMessageAt: 0,
 };
 export const GUESS_COOLDOWN = 7_000;
 export const NUMBER_HINT_AFTER = 5 * minute;
 export const POKEMON_XP = 15;
+export const DUEL_XP = 10;
+
+const duelPokemon = [
+  "Bulbasaur",
+  "Charmander",
+  "Squirtle",
+  "Pikachu",
+  "Eevee",
+  "Jigglypuff",
+  "Psyduck",
+  "Meowth",
+  "Growlithe",
+  "Machop",
+  "Poliwag",
+  "Abra",
+  "Geodude",
+  "Gastly",
+  "Cubone",
+  "Staryu",
+  "Dratini",
+  "Snorlax",
+];
 
 export function getContestLevel(xp: number) {
   return 1 + Math.floor(Math.sqrt(xp / 40));
 }
 
-export function creditMessage(
+export function getWeeklyXp(activity: Activity, week: string) {
+  return activity.xpWeek === week ? activity.weeklyXp : 0;
+}
+
+export function addContestXp(
   previous: Activity,
-  text: string,
-  now: number
+  amount: number,
+  week: string
 ): Activity {
-  const normalized = text
-    .normalize("NFKC")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-  if (
-    normalized.replace(/[^\p{L}\p{N}]/gu, "").length < 12 ||
-    normalized.startsWith("/") ||
-    now - previous.lastMessageAt < minute
-  ) {
-    return previous;
-  }
-
-  const fingerprint = createHash("sha256").update(normalized).digest("hex");
-  if (fingerprint === previous.lastFingerprint) return previous;
-
   return {
-    totalXp: previous.totalXp + 5,
-    weeklyXp: previous.weeklyXp + 5,
-    lastMessageAt: now,
-    lastFingerprint: fingerprint,
+    ...previous,
+    totalXp: previous.totalXp + amount,
+    weeklyXp: getWeeklyXp(previous, week) + amount,
+    xpWeek: week,
   };
 }
 
-export function getContestEligibility(kind: ContestKind, activity: Activity) {
+export function getContestEligibility(
+  kind: ContestKind,
+  activity: Activity,
+  week: string
+) {
+  if (kind === "daily" && activity.lastDuelWeek !== week)
+    return "Rozegraj co najmniej jeden pojedynek w tym tygodniu.";
   const rule = CONTEST_RULES[kind];
   if (getContestLevel(activity.totalXp) < rule.level)
     return `Wymagany poziom Discorda ${rule.level}.`;
-  if (activity.weeklyXp < rule.weeklyXp)
+  if (getWeeklyXp(activity, week) < rule.weeklyXp)
     return `Wymagany tygodniowy XP ${rule.weeklyXp}.`;
   return null;
 }
@@ -138,10 +153,17 @@ export function drawDuels(entries: string[], roll = randomInt) {
     remaining = advanced;
   }
 
-  return { winner: remaining[0] ?? null, rounds };
+  return {
+    winner: remaining[0] ?? null,
+    rounds,
+    pokemon: Object.fromEntries(
+      entries.map((player) => [player, duelPokemon[roll(duelPokemon.length)]])
+    ),
+  };
 }
 
 export const SCHEDULED_CONTESTS = [
+  "games",
   "daily",
   "weekly",
   "monthly",
@@ -158,16 +180,28 @@ const warsawClock = new Intl.DateTimeFormat("en-GB", {
   minute: "2-digit",
 });
 
-export function getScheduleSlot(kind: ScheduledContest, now: number) {
+function getWarsawDate(now: number) {
   const parts = Object.fromEntries(
     warsawClock.formatToParts(now).map(({ type, value }) => [type, value])
   );
   const dayKey = `${parts.year}-${parts.month}-${parts.day}`;
+  return { dayKey, minuteOfDay: +parts.hour * 60 + +parts.minute };
+}
+
+export function getContestWeek(now: number) {
+  const { dayKey } = getWarsawDate(now);
+  const monday = new Date(`${dayKey}T12:00:00Z`);
+  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+  return monday.toISOString().slice(0, 10);
+}
+
+export function getScheduleSlot(kind: ScheduledContest, now: number) {
+  const { dayKey, minuteOfDay } = getWarsawDate(now);
   const date = new Date(`${dayKey}T12:00:00Z`);
   const monthEnd = new Date(
-    Date.UTC(+parts.year, +parts.month, 0)
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)
   ).getUTCDate();
   if (kind === "weekly" && date.getUTCDay() !== 0) return null;
   if (kind === "monthly" && date.getUTCDate() !== monthEnd) return null;
-  return { key: dayKey, minuteOfDay: +parts.hour * 60 + +parts.minute };
+  return { key: dayKey, minuteOfDay };
 }

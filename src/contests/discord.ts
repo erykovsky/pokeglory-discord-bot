@@ -20,11 +20,13 @@ import {
   CONTEST_RULES,
   type ContestKind,
   type ScheduledContest,
-  creditMessage,
+  DUEL_XP,
   EMPTY_ACTIVITY,
   getContestEligibility,
   getContestLevel,
+  getContestWeek,
   getScheduleSlot,
+  getWeeklyXp,
   GUESS_COOLDOWN,
   normalizePokemonGuess,
   NUMBER_HINT_AFTER,
@@ -47,7 +49,6 @@ function readOptions() {
   if (!process.env.POKEGLORY_CONTESTS?.trim()) return null;
   const parsed = JSON.parse(process.env.POKEGLORY_CONTESTS) as {
     channels?: Partial<Record<ContestKind, string>>;
-    xpChannels?: string[];
     levelRoles?: Record<string, string>;
     automatic?: boolean;
   };
@@ -61,9 +62,6 @@ function readOptions() {
     !Object.entries(parsed.channels).every(
       ([kind, id]) => kinds.includes(kind as ContestKind) && isId(id)
     ) ||
-    !Array.isArray(parsed.xpChannels) ||
-    !parsed.xpChannels.length ||
-    !parsed.xpChannels.every(isId) ||
     !Object.entries(parsed.levelRoles ?? {}).every(
       ([level, id]) => /^\d{1,3}$/.test(level) && Number(level) >= 2 && isId(id)
     )
@@ -78,17 +76,12 @@ function readOptions() {
   ) {
     throw new Error("Zgadywanie liczby i Pokémona wymagają osobnych kanałów.");
   }
-  const xpChannels = new Set(
-    parsed.xpChannels.filter(
-      (id) => !Object.values(parsed.channels!).includes(id)
-    )
-  );
-  if (!xpChannels.size)
-    throw new Error("Wskaż osobny kanał rozmów do zdobywania XP.");
+  if (parsed.channels.daily && !parsed.channels.games) {
+    throw new Error("Dzienne losowanie wymaga kanału pojedynków.");
+  }
   return {
     guildId: config.POKEGLORY_GUILD_ID,
     channels: parsed.channels,
-    xpChannels,
     levelRoles: Object.entries(parsed.levelRoles ?? {}).map(([level, id]) => ({
       level: Number(level),
       id,
@@ -189,14 +182,35 @@ function hasSignups(event: Contest) {
   return event.kind !== "numbers" && event.kind !== "pokemon";
 }
 
+function describeDuel(
+  event: Contest,
+  winner: string,
+  eliminated: string,
+  mentions: boolean
+) {
+  const display = (id: string) => {
+    const player = mentions ? `<@${id}>` : id;
+    const pokemon = event.duelPokemon?.[id];
+    return pokemon ? `${player} (${pokemon})` : player;
+  };
+  return `${display(winner)} pokonał ${display(eliminated)}.`;
+}
+
 function buildCard(event: Contest, now: number) {
   const rule = CONTEST_RULES[event.kind];
   const closed = event.phase === "closed";
-  const description = [`**Nagroda** ${contestPrize(event)}`];
+  const description =
+    event.kind === "games" && !event.reward
+      ? [
+          `**${DUEL_XP} XP** za każdy rozegrany pojedynek. XP dostają obaj gracze.`,
+        ]
+      : [`**Nagroda** ${contestPrize(event)}`];
   if (closed) {
     description.push(
       event.winner
         ? `**Wygrywa** <@${event.winner}>`
+        : event.kind === "games"
+        ? "Do turnieju potrzeba co najmniej dwóch uczestników."
         : "Konkurs zakończony bez zwycięzcy."
     );
     if (event.winner && event.reward && !event.paid)
@@ -209,12 +223,11 @@ function buildCard(event: Contest, now: number) {
       if (event.entries.length > 40) {
         description.push("Lista uczestników i wyniki rund są w załączniku.");
       } else {
-        description.push(event.entries.map((id) => `<@${id}>`).join(", "));
         for (const [index, round] of event.rounds.entries()) {
           description.push(
             `**Runda ${index + 1}**`,
-            ...round.map(
-              (duel) => `<@${duel.winner}> pokonał <@${duel.eliminated}>.`
+            ...round.map((duel) =>
+              describeDuel(event, duel.winner, duel.eliminated, true)
             )
           );
         }
@@ -223,9 +236,20 @@ function buildCard(event: Contest, now: number) {
   } else {
     description.push(`**Koniec** <t:${Math.floor(event.closesAt / 1000)}:R>`);
     if (hasSignups(event)) {
-      description.push(`**Wymagany poziom** ${rule.level}`);
-      if (rule.weeklyXp)
-        description.push(`**Wymagany tygodniowy XP** ${rule.weeklyXp}`);
+      if (event.kind === "games") {
+        description.push(
+          "RotomBot przydzieli Ci losowego Pokémona na cały turniej. Potem losuje pary i wyniki. Zwycięzca przechodzi dalej.",
+          "Jeden rozegrany pojedynek odblokowuje dzienne losowania do końca tygodnia."
+        );
+      } else if (event.kind === "daily") {
+        description.push(
+          "Rozegraj co najmniej jeden pojedynek w tym tygodniu, żeby się zapisać."
+        );
+      } else {
+        description.push(`**Wymagany poziom** ${rule.level}`);
+        if (rule.weeklyXp)
+          description.push(`**Wymagany tygodniowy XP** ${rule.weeklyXp}`);
+      }
       description.push(`**Zapisani** ${event.entries.length}`);
     } else if (event.number) {
       description.push(
@@ -333,7 +357,9 @@ export function startContestSystem(
     if (current.rounds?.length && current.entries.length > 40) {
       const rounds = current.rounds.flatMap((round, index) => [
         `Runda ${index + 1}`,
-        ...round.map((duel) => `${duel.winner} pokonał ${duel.eliminated}`),
+        ...round.map((duel) =>
+          describeDuel(current, duel.winner, duel.eliminated, false)
+        ),
       ]);
       const report = [
         "Identyfikatory Discord zapisanych uczestników",
@@ -366,7 +392,11 @@ export function startContestSystem(
           event = store.update((state) =>
             Object.assign(state.contests[id], { pokemon })
           );
-        } else if (event.kind !== "pokemon" && !event.reward) {
+        } else if (
+          event.kind !== "pokemon" &&
+          event.kind !== "games" &&
+          !event.reward
+        ) {
           const reward = await contestApi<Reward>({
             action: "reserve",
             contestId: id,
@@ -401,8 +431,9 @@ export function startContestSystem(
           })
         );
       } else {
-        if (event.phase === "open" && event.closesAt <= Date.now())
-          event = settleContest(store, id);
+        const now = Date.now();
+        if (event.phase === "open" && event.closesAt <= now)
+          event = settleContest(store, id, undefined, now);
         if (event.phase !== "closed" || event.published) return;
         if (event.reward && event.winner && !event.paid) {
           try {
@@ -420,6 +451,21 @@ export function startContestSystem(
           }
         }
         await refresh(event);
+        if (
+          event.kind === "games" &&
+          event.rounds?.length &&
+          options.levelRoles.length
+        ) {
+          const channel = await getChannel(event.channelId);
+          for (const id of event.entries) {
+            try {
+              const member = await channel.guild.members.fetch(id);
+              if (isVerified(member)) await syncLevelRoles(member);
+            } catch (error) {
+              console.error("[Konkursy: role]", error);
+            }
+          }
+        }
         store.update((state) => {
           state.contests[id].published = true;
         });
@@ -498,7 +544,7 @@ export function startContestSystem(
     ) {
       return;
     }
-    settleContest(store, event.id, id);
+    settleContest(store, event.id, id, now);
     if (event.pokemon && message.member) {
       void syncLevelRoles(message.member).catch((error) =>
         console.error("[Konkursy: role]", error)
@@ -521,21 +567,7 @@ export function startContestSystem(
           contest.phase === "open" &&
           (contest.number || contest.pokemon)
       );
-      if (event) {
-        await readGuess(message, event);
-      } else if (options.xpChannels.has(message.channelId)) {
-        const previous = getActivity(message.author.id);
-        const next = creditMessage(
-          previous,
-          message.content,
-          message.createdTimestamp
-        );
-        if (previous === next) return;
-        store.update((state) => {
-          state.activity[message.author.id] = next;
-        });
-        if (message.member) await syncLevelRoles(message.member, next);
-      }
+      if (event) await readGuess(message, event);
     } catch (error) {
       console.error("[Konkursy: wiadomość]", error);
     }
@@ -549,14 +581,20 @@ export function startContestSystem(
         interaction.commandName === "aktywnosc"
       ) {
         const activity = getActivity(interaction.user.id);
+        const week = getContestWeek(Date.now());
+        const weeklyXp = getWeeklyXp(activity, week);
+        const duelStatus =
+          activity.lastDuelWeek === week ? "rozegrany" : "do rozegrania";
         await interaction.reply({
           content: `**Poziom Discorda** ${getContestLevel(
             activity.totalXp
           )}\n**Łączny XP** ${formatNumber.format(
             activity.totalXp
           )}\n**Poziom tygodniowy** ${getContestLevel(
-            activity.weeklyXp
-          )}\n**Tygodniowy XP** ${formatNumber.format(activity.weeklyXp)}`,
+            weeklyXp
+          )}\n**Tygodniowy XP** ${formatNumber.format(
+            weeklyXp
+          )}\n**Pojedynek w tym tygodniu** ${duelStatus}`,
           flags: MessageFlags.Ephemeral,
         });
       } else if (
@@ -619,7 +657,8 @@ export function startContestSystem(
           const userId = interaction.user.id;
           const eligibility = getContestEligibility(
             event.kind,
-            getActivity(userId)
+            getActivity(userId),
+            getContestWeek(Date.now())
           );
           if (!isVerified(member))
             reply = "Połącz konto PokeGlory komendą /link.";
@@ -710,10 +749,25 @@ export function startContestSystem(
           if (
             !slot ||
             slot.minuteOfDay < 14 * 60 ||
-            slot.minuteOfDay >= 22 * 60
+            (slot.minuteOfDay >= 22 * 60 && kind !== "daily")
           )
             continue;
-          const current = store.read().plans[kind];
+          const plans = store.read().plans;
+          const tournament = plans.games;
+          const daily = plans.daily;
+          if (kind === "games" && daily?.key === slot.key && daily.started)
+            continue;
+          if (
+            kind === "daily" &&
+            (tournament?.key !== slot.key ||
+              !tournament.started ||
+              findActive("games"))
+          )
+            continue;
+
+          const current = plans[kind];
+          const minute =
+            kind === "daily" && tournament ? tournament.minute : undefined;
           const plan =
             current?.key === slot.key
               ? current
@@ -721,13 +775,13 @@ export function startContestSystem(
                   (state) =>
                     (state.plans[kind] = {
                       key: slot.key,
-                      minute: randomInt(14 * 60, 21 * 60 + 1),
+                      minute: minute ?? randomInt(14 * 60, 21 * 60 + 1),
                       started: false,
                     })
                 );
           if (
             plan.started ||
-            slot.minuteOfDay < plan.minute ||
+            slot.minuteOfDay < (minute ?? plan.minute) ||
             findActive(kind)
           )
             continue;

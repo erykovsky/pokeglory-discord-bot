@@ -4,48 +4,97 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  creditMessage,
+  addContestXp,
   drawDuels,
   EMPTY_ACTIVITY,
   getContestEligibility,
   getContestLevel,
+  getContestWeek,
   getScheduleSlot,
+  getWeeklyXp,
   normalizePokemonGuess,
   numberHint,
 } from "./rules";
 import { ContestStore, settleContest } from "./store";
 
-test("chat XP counts once a minute and ignores short or repeated messages", () => {
-  const activity = creditMessage(
-    EMPTY_ACTIVITY,
-    "Prawidłowa wiadomość",
-    90_000
-  );
-  assert.equal(activity.totalXp, 5);
-  assert.equal(activity.weeklyXp, 5);
-  assert.equal(
-    creditMessage(activity, "Nowa wiadomość użytkownika", 149_999),
-    activity
-  );
-  assert.equal(
-    creditMessage(activity, "PRAWIDŁOWA  wiadomość ", 150_000),
-    activity
-  );
-  assert.equal(creditMessage(activity, "hej", 150_000), activity);
-  assert.equal(
-    creditMessage(activity, "Nowa wiadomość użytkownika", 150_000).totalXp,
-    10
-  );
+test("a duel unlocks daily draws until Monday in Warsaw, independently of other XP", () => {
+  const sunday = Date.parse("2026-11-15T22:59:59Z");
+  const monday = Date.parse("2026-11-15T23:00:00Z");
+  const week = getContestWeek(sunday);
+  const nextWeek = getContestWeek(monday);
+  assert.equal(week, "2026-11-09");
+  assert.equal(nextWeek, "2026-11-16");
   assert.equal(getContestLevel(160), 3);
-  assert.ok(getContestEligibility("weekly", { ...activity, totalXp: 200 }));
-  assert.equal(
-    getContestEligibility("weekly", {
-      ...activity,
-      totalXp: 200,
-      weeklyXp: 60,
-    }),
-    null
-  );
+  const legacy = { ...EMPTY_ACTIVITY, totalXp: 50, weeklyXp: 50 };
+  assert.equal(getWeeklyXp(legacy, week), 0);
+  const triviaWinner = addContestXp(legacy, 15, week);
+  assert.ok(getContestEligibility("daily", triviaWinner, week));
+  const duelist = {
+    ...addContestXp(triviaWinner, 10, week),
+    lastDuelWeek: week,
+  };
+  assert.equal(getContestEligibility("daily", duelist, week), null);
+  assert.ok(getContestEligibility("daily", duelist, nextWeek));
+  assert.equal(getWeeklyXp(duelist, nextWeek), 0);
+  assert.equal(addContestXp(duelist, 10, nextWeek).totalXp, 85);
+});
+
+test("both sides receive 10 XP per matchup exactly once and each keeps their Pokémon", () => {
+  const folder = mkdtempSync(join(tmpdir(), "pg-duel-test-"));
+  try {
+    const file = join(folder, "contests.json");
+    const store = new ContestStore(file);
+    const now = Date.parse("2026-11-16T16:00:00Z");
+    const players = ["one", "two", "three"];
+    store.update((state) => {
+      state.contests.duels = {
+        id: "duels",
+        kind: "games",
+        channelId: "test",
+        phase: "open",
+        entries: players,
+        closesAt: now,
+      };
+      state.contests.noOpponent = {
+        id: "noOpponent",
+        kind: "games",
+        channelId: "test",
+        phase: "open",
+        entries: ["alone"],
+        closesAt: now,
+      };
+    });
+    const event = settleContest(store, "duels", undefined, now);
+    const rounds = event.rounds!.flat();
+    assert.equal(rounds.length, 2);
+    assert.deepEqual(
+      Object.keys(event.duelPokemon!).sort(),
+      [...players].sort()
+    );
+    for (const player of players) {
+      const fights = rounds.filter((duel) =>
+        [duel.winner, duel.eliminated].includes(player)
+      ).length;
+      assert.equal(store.read().activity[player].weeklyXp, 10 * fights);
+      assert.equal(store.read().activity[player].totalXp, 10 * fights);
+      assert.equal(
+        getContestEligibility(
+          "daily",
+          store.read().activity[player],
+          getContestWeek(now)
+        ),
+        null
+      );
+    }
+    const empty = settleContest(store, "noOpponent", undefined, now);
+    assert.equal(empty.winner, null);
+    assert.equal(store.read().activity.alone, undefined);
+    const restarted = new ContestStore(file);
+    assert.deepEqual(settleContest(restarted, "duels", undefined, now), event);
+    assert.deepEqual(restarted.read().activity, store.read().activity);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });
 
 test("a saved weekly draw resets weekly XP once and preserves the winner through restart", () => {

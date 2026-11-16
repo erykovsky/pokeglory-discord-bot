@@ -1,5 +1,12 @@
 import { randomInt } from "node:crypto";
-import { drawDuels, EMPTY_ACTIVITY, POKEMON_XP } from "./rules";
+import {
+  addContestXp,
+  drawDuels,
+  DUEL_XP,
+  EMPTY_ACTIVITY,
+  getContestWeek,
+  POKEMON_XP,
+} from "./rules";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Activity, ContestKind, ScheduledContest } from "./rules";
@@ -23,7 +30,8 @@ export type Contest = {
   };
   pokemon?: { name: string; imageUrl: string };
   winner?: string | null;
-  rounds?: Array<Array<{ winner: string; eliminated: string }>>;
+  rounds?: ReturnType<typeof drawDuels>["rounds"];
+  duelPokemon?: Record<string, string>;
   paid?: boolean;
   published?: boolean;
   displayedEntries?: number;
@@ -79,16 +87,33 @@ export class ContestStore {
 export function settleContest(
   store: ContestStore,
   id: string,
-  winner?: string
+  winner?: string,
+  now = Date.now()
 ) {
   return store.update((state) => {
     const event = state.contests[id];
     if (event.phase !== "open") return event;
+    const week = getContestWeek(now);
     event.phase = "closed";
     if (event.kind === "games") {
       const result = drawDuels(event.entries.length > 1 ? event.entries : []);
       event.winner = result.winner;
       event.rounds = result.rounds;
+      event.duelPokemon = result.pokemon;
+      for (const round of result.rounds) {
+        for (const duel of round) {
+          for (const participant of [duel.winner, duel.eliminated]) {
+            state.activity[participant] = {
+              ...addContestXp(
+                state.activity[participant] ?? EMPTY_ACTIVITY,
+                DUEL_XP,
+                week
+              ),
+              lastDuelWeek: week,
+            };
+          }
+        }
+      }
     } else {
       event.winner =
         winner ??
@@ -101,12 +126,11 @@ export function settleContest(
         activity.weeklyXp = 0;
     }
     if (event.kind === "pokemon" && winner) {
-      const previous = state.activity[winner] ?? EMPTY_ACTIVITY;
-      state.activity[winner] = {
-        ...previous,
-        totalXp: previous.totalXp + POKEMON_XP,
-        weeklyXp: previous.weeklyXp + POKEMON_XP,
-      };
+      state.activity[winner] = addContestXp(
+        state.activity[winner] ?? EMPTY_ACTIVITY,
+        POKEMON_XP,
+        week
+      );
     }
     return event;
   });
