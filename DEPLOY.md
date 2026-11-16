@@ -68,8 +68,9 @@ Mirror aktualizacji gry domyślnie szuka kanału `📢｜aktualizacje`; można g
      wieczornego turnieju. Zgadywanie Pokémona może zacząć się codziennie, losowanie tygodniowe
      w niedzielę, a miesięczne ostatniego dnia miesiąca. Administrator może
      uruchomić dowolny aktywny rodzaj komendą `/konkurs`.
-5. Gracze używają `/aktywnosc` do podglądu poziomu, XP i statusu pojedynku
-   w tym tygodniu. Co najmniej jeden rozegrany pojedynek wystarcza do dziennych
+5. Gracze używają `/aktywnosc` do podglądu poziomu, XP, bilansu wygranych
+   i przegranych oraz statusu pojedynku w tym tygodniu. Bilans obejmuje pojedynki z komendy
+   i każdą rozegraną rundę turnieju, a zmiana tygodnia go nie zeruje. Co najmniej jeden rozegrany pojedynek wystarcza do dziennych
    losowań do najbliższego poniedziałku czasu warszawskiego. Wiadomości na czacie
    nie dają XP. Poprzedni łączny XP pozostaje zapisany.
 

@@ -49,6 +49,8 @@ export type Activity = {
   xpWeek?: string;
   lastDuelWeek?: string;
   lastPlayerDuelAt?: number;
+  duelWins?: number;
+  duelLosses?: number;
 };
 
 export const EMPTY_ACTIVITY: Activity = {
@@ -131,8 +133,17 @@ export function addContestXp(
   };
 }
 
-export function addDuelXp(previous: Activity, week: string): Activity {
-  return { ...addContestXp(previous, DUEL_XP, week), lastDuelWeek: week };
+export function recordDuelResult(
+  previous: Activity,
+  week: string,
+  won: boolean
+): Activity {
+  return {
+    ...addContestXp(previous, DUEL_XP, week),
+    lastDuelWeek: week,
+    duelWins: (previous.duelWins ?? 0) + (won ? 1 : 0),
+    duelLosses: (previous.duelLosses ?? 0) + (won ? 0 : 1),
+  };
 }
 
 export function getContestEligibility(

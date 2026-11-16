@@ -691,6 +691,10 @@ export function startContestSystem(
             weeklyXp
           )}\n**Tygodniowy XP** ${formatNumber.format(
             weeklyXp
+          )}\n**Wygrane pojedynki** ${formatNumber.format(
+            activity.duelWins ?? 0
+          )} · **Przegrane** ${formatNumber.format(
+            activity.duelLosses ?? 0
           )}\n**Pojedynek w tym tygodniu** ${duelStatus}${
             signupHelp ? `\n\n${signupHelp}` : ""
           }`,

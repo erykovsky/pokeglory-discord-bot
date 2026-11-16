@@ -87,6 +87,10 @@ test("both sides receive 10 XP per matchup exactly once and each keeps their Pok
       ).length;
       assert.equal(store.read().activity[player].weeklyXp, 10 * fights);
       assert.equal(store.read().activity[player].totalXp, 10 * fights);
+      const wins = rounds.filter((duel) => duel.winner === player).length;
+      const losses = rounds.filter((duel) => duel.eliminated === player).length;
+      assert.equal(store.read().activity[player].duelWins, wins);
+      assert.equal(store.read().activity[player].duelLosses, losses);
       assert.equal(
         getContestEligibility(
           "daily",
@@ -155,6 +159,10 @@ test("a player challenge awards both players once and preserves cooldown across 
       );
     }
     const recovered = new ContestStore(path);
+    assert.equal(recovered.read().activity.one.duelWins, 0);
+    assert.equal(recovered.read().activity.one.duelLosses, 1);
+    assert.equal(recovered.read().activity.two.duelWins, 1);
+    assert.equal(recovered.read().activity.two.duelLosses, 0);
     assert.equal(
       acceptDuelChallenge(recovered, "invite", "two", now).status,
       "closed"
@@ -197,6 +205,8 @@ test("a player challenge awards both players once and preserves cooldown across 
     );
     assert.equal(recovered.read().activity.one.totalXp, 20);
     assert.equal(recovered.read().activity.one.weeklyXp, 10);
+    assert.equal(recovered.read().activity.one.duelWins, 1);
+    assert.equal(recovered.read().activity.one.duelLosses, 1);
     assert.equal(
       getContestEligibility(
         "daily",

@@ -1,13 +1,13 @@
 import { randomInt } from "node:crypto";
 import {
   addContestXp,
-  addDuelXp,
   drawDuelPokemon,
   drawDuels,
   EMPTY_ACTIVITY,
   getContestWeek,
   getDuelWinChance,
   POKEMON_XP,
+  recordDuelResult,
   PLAYER_DUEL_COOLDOWN,
   DUEL_CHALLENGE_DURATION,
 } from "./rules";
@@ -174,7 +174,7 @@ export function acceptDuelChallenge(
     for (const playerId of players) {
       const previous = state.activity[playerId] ?? EMPTY_ACTIVITY;
       state.activity[playerId] = {
-        ...addDuelXp(previous, week),
+        ...recordDuelResult(previous, week, playerId === winnerId),
         lastPlayerDuelAt: now,
       };
     }
@@ -209,9 +209,10 @@ export function settleContest(
       for (const round of result.rounds) {
         for (const duel of round) {
           for (const participant of [duel.winner, duel.eliminated]) {
-            state.activity[participant] = addDuelXp(
+            state.activity[participant] = recordDuelResult(
               state.activity[participant] ?? EMPTY_ACTIVITY,
-              week
+              week,
+              participant === duel.winner
             );
           }
         }
