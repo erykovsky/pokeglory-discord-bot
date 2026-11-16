@@ -57,8 +57,9 @@ Mirror aktualizacji gry domyślnie szuka kanału `📢｜aktualizacje`; można g
      `games`. Oba mogą korzystać z tego samego kanału. Zgadywanki potrzebują osobnych kanałów.
    - `levelRoles` z parami poziom i ID roli. Przykładowe poziomy to `2` dla kanału
      tygodniowego i `3` dla miesięcznego. Bot przyznaje role wraz z postępem.
-   - `automatic` jako `true` uruchamia do trzech turniejów dziennie. Bot losuje godziny
-     w oknach 12:00–14:00, 15:00–17:00 i 18:00–21:00 czasu warszawskiego.
+   - `automatic` jako `true` uruchamia do sześciu turniejów dziennie. Bot losuje godziny
+     startu w oknach 10:00–12:00, 12:00–14:00, 14:00–16:00, 16:00–18:00,
+     18:00–20:00 i 20:00–21:00 czasu warszawskiego.
      Losowanie dzienne jest jedno i startuje po zakończeniu ostatniego,
      wieczornego turnieju. Zgadywanie Pokémona może zacząć się codziennie, losowanie tygodniowe
      w niedzielę, a miesięczne ostatniego dnia miesiąca. Administrator może

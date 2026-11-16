@@ -780,7 +780,11 @@ export function startContestSystem(
           const minute =
             kind === "daily" && tournament ? tournament.minute : undefined;
           const plan =
-            current?.key === slot.key
+            current?.key === slot.key &&
+            (current.started ||
+              !duelWindow ||
+              (current.minute >= duelWindow.firstMinute &&
+                current.minute <= duelWindow.lastMinute))
               ? current
               : store.update(
                   (state) =>
