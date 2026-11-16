@@ -11,6 +11,7 @@ import {
   EmbedBuilder,
   Events,
   type GuildMember,
+  InteractionContextType,
   type Message,
   MessageFlags,
   PermissionFlagsBits,
@@ -21,6 +22,7 @@ import {
   type ContestKind,
   type ContestPlanKey,
   type DuelMatch,
+  type DuelPokemon,
   DUEL_XP,
   EMPTY_ACTIVITY,
   getContestEligibility,
@@ -40,6 +42,7 @@ import {
 import {
   type Contest,
   ContestStore,
+  playSoloDuel,
   settleContest,
   type Reward,
 } from "./store";
@@ -54,6 +57,7 @@ function readOptions() {
   if (!process.env.POKEGLORY_CONTESTS?.trim()) return null;
   const parsed = JSON.parse(process.env.POKEGLORY_CONTESTS) as {
     channels?: Partial<Record<ContestKind, string>>;
+    duelChannel?: string;
     levelRoles?: Record<string, string>;
     automatic?: boolean;
   };
@@ -64,6 +68,7 @@ function readOptions() {
     !config.POKEGLORY_DISCORD_BOT_SECRET ||
     !parsed.channels ||
     !Object.keys(parsed.channels).length ||
+    (parsed.duelChannel !== undefined && !isId(parsed.duelChannel)) ||
     !Object.entries(parsed.channels).every(
       ([kind, id]) => kinds.includes(kind as ContestKind) && isId(id)
     ) ||
@@ -87,6 +92,7 @@ function readOptions() {
   return {
     guildId: config.POKEGLORY_GUILD_ID,
     channels: parsed.channels,
+    duelChannel: parsed.duelChannel,
     levelRoles: Object.entries(parsed.levelRoles ?? {}).map(([level, id]) => ({
       level: Number(level),
       id,
@@ -104,6 +110,16 @@ export const contestCommands: ChatInputApplicationCommandData[] = [
     name: "aktywnosc",
     description: "Pokaż poziom i XP zdobyte na Discordzie.",
   },
+  ...(contestOptions?.duelChannel
+    ? [
+        {
+          name: "pojedynek",
+          description:
+            "Rozegraj pojedynek z RotomBotem i zdobądź 10 XP. Raz na godzinę.",
+          contexts: [InteractionContextType.Guild],
+        },
+      ]
+    : []),
   {
     name: "konkurs",
     description: "Rozpocznij konkurs na wyznaczonym kanale.",
@@ -187,16 +203,18 @@ function hasSignups(event: Contest) {
   return event.kind !== "numbers" && event.kind !== "pokemon";
 }
 
+function formatDuelPokemon(pokemon: DuelPokemon | string) {
+  return typeof pokemon === "string"
+    ? pokemon
+    : `${pokemon.name}, ${pokemon.rarity}`;
+}
+
 function describeDuel(event: Contest, duel: DuelMatch, mentions: boolean) {
   const display = (id: string) => {
     const player = mentions ? `<@${id}>` : id;
     const pokemon = event.duelPokemon?.[id];
     if (!pokemon) return player;
-    const label =
-      typeof pokemon === "string"
-        ? pokemon
-        : `${pokemon.name}, ${pokemon.rarity}`;
-    return `${player} (${label})`;
+    return `${player} (${formatDuelPokemon(pokemon)})`;
   };
   const chance = duel.winnerWinChance;
   const odds = chance === undefined ? "" : ` · ${chance}% do ${100 - chance}%`;
@@ -210,7 +228,7 @@ function describeDuelRounds(event: Contest, mentions: boolean) {
   ]);
 }
 
-function buildCard(event: Contest, now: number) {
+function buildCard(event: Contest, now: number, duelChannel?: string) {
   const rule = CONTEST_RULES[event.kind];
   const closed = event.phase === "closed";
   const files: AttachmentBuilder[] = [];
@@ -265,7 +283,9 @@ function buildCard(event: Contest, now: number) {
         );
       } else if (event.kind === "daily") {
         description.push(
-          `Jeden pojedynek w tym tygodniu daje dostęp do losowania. Aby zawalczyć, kliknij **${DUEL_SIGNUP_LABEL}** pod ogłoszeniem **Turniej pojedynków**.`
+          duelChannel
+            ? `Jeden pojedynek w tym tygodniu daje dostęp do losowania. Wpisz **/pojedynek** na <#${duelChannel}>, a potem wróć tutaj i zapisz się.`
+            : `Jeden pojedynek w tym tygodniu daje dostęp do losowania. Aby zawalczyć, kliknij **${DUEL_SIGNUP_LABEL}** pod ogłoszeniem **Turniej pojedynków**.`
         );
       } else {
         description.push(`**Wymagany poziom** ${rule.level}`);
@@ -386,7 +406,11 @@ export function startContestSystem(
     if (!event.messageId) return;
     const channel = await getChannel(event.channelId);
     const current = store.read().contests[event.id];
-    const { files, ...card } = buildCard(current, Date.now());
+    const { files, ...card } = buildCard(
+      current,
+      Date.now(),
+      options.duelChannel
+    );
     await channel.messages.edit(
       event.messageId,
       files.length ? { ...card, attachments: [], files } : card
@@ -431,7 +455,11 @@ export function startContestSystem(
           ? { ...event.number, hintsAt: now + NUMBER_HINT_AFTER }
           : undefined;
         const message = await channel.send({
-          ...buildCard({ ...event, closesAt, number }, now),
+          ...buildCard(
+            { ...event, closesAt, number },
+            now,
+            options.duelChannel
+          ),
           nonce: id.replace(/-/g, "").slice(0, 24),
           enforceNonce: true,
           files: file ? [file] : [],
@@ -496,6 +524,9 @@ export function startContestSystem(
   }
 
   function getDuelSignupInstructions(now = Date.now()) {
+    if (options.duelChannel)
+      return `Wpisz **/pojedynek** na <#${options.duelChannel}>. Walka z RotomBotem odbędzie się od razu i da Ci **${DUEL_XP} XP** także za przegraną. Po walce możesz wrócić do zapisów na losowanie.`;
+
     const channelId = options.channels.games;
     if (!channelId) return null;
 
@@ -628,6 +659,75 @@ export function startContestSystem(
           }`,
           flags: MessageFlags.Ephemeral,
         });
+      } else if (
+        interaction.isChatInputCommand() &&
+        interaction.commandName === "pojedynek"
+      ) {
+        const duelChannel = options.duelChannel;
+        if (!duelChannel) return;
+        const member = interaction.inCachedGuild() ? interaction.member : null;
+        if (!member || !isVerified(member)) {
+          await interaction.reply({
+            content: "Połącz konto PokeGlory komendą /link.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+        if (interaction.channelId !== duelChannel) {
+          await interaction.reply({
+            content: `Wpisz **/pojedynek** na <#${duelChannel}>.`,
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+        const now = Date.now();
+        const player = `<@${member.id}>`;
+        const duel = playSoloDuel(store, member.id, now);
+        if (duel.status === "cooldown") {
+          await interaction.reply({
+            content: `Następny pojedynek z RotomBotem możesz rozegrać <t:${Math.ceil(
+              duel.availableAt / 1000
+            )}:R>.`,
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const embed = new EmbedBuilder()
+          .setTitle("Pojedynek z RotomBotem")
+          .setColor(duel.won ? 0x36b28c : 0x607493)
+          .setDescription(
+            [
+              `**${player}** · ${formatDuelPokemon(duel.player)}`,
+              `**RotomBot** · ${formatDuelPokemon(duel.opponent)}`,
+              `Szanse ${duel.chance}% do ${100 - duel.chance}%`,
+              "",
+              duel.won ? `**Wygrywa ${player}.**` : "**Wygrywa RotomBot.**",
+              `**+${DUEL_XP} XP**. Ten pojedynek daje Ci dostęp do losowań do końca tygodnia.`,
+            ].join("\n")
+          );
+        const daily = findActive("daily");
+        const components =
+          daily?.phase === "open" && daily.messageId && daily.closesAt > now
+            ? [
+                new ActionRowBuilder<ButtonBuilder>().addComponents(
+                  new ButtonBuilder()
+                    .setStyle(ButtonStyle.Link)
+                    .setLabel("Przejdź do losowania")
+                    .setURL(
+                      `https://discord.com/channels/${options.guildId}/${daily.channelId}/${daily.messageId}`
+                    )
+                ),
+              ]
+            : [];
+        await interaction.reply({
+          embeds: [embed],
+          components,
+          allowedMentions: { parse: [] },
+        });
+        void syncLevelRoles(member, duel.activity).catch((error) =>
+          console.error("[Konkursy: role]", error)
+        );
       } else if (
         interaction.isChatInputCommand() &&
         interaction.commandName === "konkurs"

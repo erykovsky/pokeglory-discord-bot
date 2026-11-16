@@ -18,8 +18,9 @@ import {
   getWeeklyXp,
   normalizePokemonGuess,
   numberHint,
+  SOLO_DUEL_COOLDOWN,
 } from "./rules";
-import { ContestStore, settleContest } from "./store";
+import { ContestStore, playSoloDuel, settleContest } from "./store";
 
 test("a duel unlocks daily draws until Monday in Warsaw, independently of other XP", () => {
   const sunday = Date.parse("2026-11-15T22:59:59Z");
@@ -96,6 +97,58 @@ test("both sides receive 10 XP per matchup exactly once and each keeps their Pok
     const restarted = new ContestStore(file);
     assert.deepEqual(settleContest(restarted, "duels", undefined, now), event);
     assert.deepEqual(restarted.read().activity, store.read().activity);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test("a solo duel gives XP on a loss and its per-player cooldown survives a restart", () => {
+  const folder = mkdtempSync(join(tmpdir(), "pg-solo-duel-"));
+  try {
+    const path = join(folder, "contests.json");
+    const store = new ContestStore(path);
+    const now = Date.parse("2026-11-15T22:40:00Z");
+    const loss = playSoloDuel(store, "player", now, (max) => max - 1);
+    assert.equal(loss.status, "played");
+    if (loss.status !== "played") return;
+    assert.equal(loss.won, false);
+    assert.equal(loss.activity.totalXp, 10);
+    assert.equal(
+      getContestEligibility("daily", loss.activity, getContestWeek(now)),
+      null
+    );
+
+    const restarted = new ContestStore(path);
+    assert.deepEqual(
+      playSoloDuel(restarted, "player", now + SOLO_DUEL_COOLDOWN - 1),
+      {
+        status: "cooldown",
+        availableAt: now + SOLO_DUEL_COOLDOWN,
+      }
+    );
+    assert.equal(restarted.read().activity.player.totalXp, 10);
+    const other = playSoloDuel(restarted, "another", now, () => 0);
+    assert.equal(other.status, "played");
+    if (other.status === "played") assert.equal(other.won, true);
+
+    const renewed = playSoloDuel(
+      restarted,
+      "player",
+      now + SOLO_DUEL_COOLDOWN,
+      () => 0
+    );
+    assert.equal(renewed.status, "played");
+    if (renewed.status !== "played") return;
+    assert.equal(renewed.activity.totalXp, 20);
+    assert.equal(renewed.activity.weeklyXp, 10);
+    assert.equal(
+      getContestEligibility(
+        "daily",
+        renewed.activity,
+        getContestWeek(now + SOLO_DUEL_COOLDOWN)
+      ),
+      null
+    );
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }

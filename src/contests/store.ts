@@ -1,11 +1,14 @@
 import { randomInt } from "node:crypto";
 import {
   addContestXp,
+  addDuelXp,
+  drawDuelPokemon,
   drawDuels,
-  DUEL_XP,
   EMPTY_ACTIVITY,
   getContestWeek,
+  getDuelWinChance,
   POKEMON_XP,
+  SOLO_DUEL_COOLDOWN,
 } from "./rules";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -90,6 +93,33 @@ export class ContestStore {
   }
 }
 
+export function playSoloDuel(
+  store: ContestStore,
+  playerId: string,
+  now = Date.now(),
+  roll = randomInt
+) {
+  const previous = store.read().activity[playerId] ?? EMPTY_ACTIVITY;
+  if (previous.lastSoloDuelAt !== undefined) {
+    const availableAt = previous.lastSoloDuelAt + SOLO_DUEL_COOLDOWN;
+    if (now < availableAt) return { status: "cooldown" as const, availableAt };
+  }
+
+  const player = drawDuelPokemon(roll);
+  const opponent = drawDuelPokemon(roll);
+  const chance = getDuelWinChance(player, opponent);
+  const won = roll(100) < chance;
+  const activity = store.update((state) => {
+    const next = {
+      ...addDuelXp(previous, getContestWeek(now)),
+      lastSoloDuelAt: now,
+    };
+    state.activity[playerId] = next;
+    return next;
+  });
+  return { status: "played" as const, player, opponent, chance, won, activity };
+}
+
 export function settleContest(
   store: ContestStore,
   id: string,
@@ -109,14 +139,10 @@ export function settleContest(
       for (const round of result.rounds) {
         for (const duel of round) {
           for (const participant of [duel.winner, duel.eliminated]) {
-            state.activity[participant] = {
-              ...addContestXp(
-                state.activity[participant] ?? EMPTY_ACTIVITY,
-                DUEL_XP,
-                week
-              ),
-              lastDuelWeek: week,
-            };
+            state.activity[participant] = addDuelXp(
+              state.activity[participant] ?? EMPTY_ACTIVITY,
+              week
+            );
           }
         }
       }

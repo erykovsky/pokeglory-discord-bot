@@ -55,6 +55,10 @@ Mirror aktualizacji gry domyślnie szuka kanału `📢｜aktualizacje`; można g
      `weekly`, `monthly`, `games`, `numbers` i `pokemon`. Pominięcie klucza
      wyłącza dany rodzaj. Losowanie dzienne wymaga również ustawienia
      `games`. Oba mogą korzystać z tego samego kanału. Zgadywanki potrzebują osobnych kanałów.
+   - Opcjonalne `duelChannel` z ID kanału komendy `/pojedynek`. Gracz może
+     od razu zawalczyć z RotomBotem i dostać 10 XP także za przegraną. Komenda
+     ma godzinny limit dla każdego gracza, zachowywany po restarcie bota.
+     Taki pojedynek kwalifikuje do losowań w bieżącym tygodniu.
    - `levelRoles` z parami poziom i ID roli. Przykładowe poziomy to `2` dla kanału
      tygodniowego i `3` dla miesięcznego. Bot przyznaje role wraz z postępem.
    - `automatic` jako `true` uruchamia do ośmiu turniejów dziennie. Bot losuje godziny
