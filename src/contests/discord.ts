@@ -44,8 +44,7 @@ import {
 } from "./store";
 
 const PREFIX = "pg-contest:";
-// Room for both Pokémon, rarity labels and odds in Discord’s 4096-character embed.
-const MAX_INLINE_DUEL_ENTRIES = 30;
+const MAX_EMBED_DESCRIPTION_LENGTH = 4096;
 const kinds = Object.keys(CONTEST_RULES) as ContestKind[];
 const formatNumber = new Intl.NumberFormat("pl-PL");
 
@@ -202,9 +201,17 @@ function describeDuel(event: Contest, duel: DuelMatch, mentions: boolean) {
   return `${display(duel.winner)} pokonał ${display(duel.eliminated)}${odds}.`;
 }
 
+function describeDuelRounds(event: Contest, mentions: boolean) {
+  return (event.rounds ?? []).flatMap((round, index) => [
+    mentions ? `**Runda ${index + 1}**` : `Runda ${index + 1}`,
+    ...round.map((duel) => describeDuel(event, duel, mentions)),
+  ]);
+}
+
 function buildCard(event: Contest, now: number) {
   const rule = CONTEST_RULES[event.kind];
   const closed = event.phase === "closed";
+  const files: AttachmentBuilder[] = [];
   const description =
     event.kind === "games" && !event.reward
       ? [
@@ -226,15 +233,23 @@ function buildCard(event: Contest, now: number) {
     if (event.pokemon) description.push(`**To był** ${event.pokemon.name}`);
     if (event.rounds?.length) {
       description.push(`**Uczestnicy** ${event.entries.length}`);
-      if (event.entries.length > MAX_INLINE_DUEL_ENTRIES) {
-        description.push("Lista uczestników i wyniki rund są w załączniku.");
+      const rounds = describeDuelRounds(event, true);
+      if (
+        [...description, ...rounds].join("\n").length <=
+        MAX_EMBED_DESCRIPTION_LENGTH
+      ) {
+        description.push(...rounds);
       } else {
-        for (const [index, round] of event.rounds.entries()) {
-          description.push(
-            `**Runda ${index + 1}**`,
-            ...round.map((duel) => describeDuel(event, duel, true))
-          );
-        }
+        description.push("Lista uczestników i wyniki rund są w załączniku.");
+        const report = [
+          "Identyfikatory Discord zapisanych uczestników",
+          ...event.entries,
+          "",
+          ...describeDuelRounds(event, false),
+        ].join("\n");
+        files.push(
+          new AttachmentBuilder(Buffer.from(report), { name: "pojedynki.txt" })
+        );
       }
     }
   } else {
@@ -294,6 +309,7 @@ function buildCard(event: Contest, now: number) {
   return {
     embeds: [embed],
     components,
+    files,
     allowedMentions: { parse: [] as never[] },
   };
 }
@@ -358,31 +374,11 @@ export function startContestSystem(
     if (!event.messageId) return;
     const channel = await getChannel(event.channelId);
     const current = store.read().contests[event.id];
-    const card = buildCard(current, Date.now());
-    if (
-      current.rounds?.length &&
-      current.entries.length > MAX_INLINE_DUEL_ENTRIES
-    ) {
-      const rounds = current.rounds.flatMap((round, index) => [
-        `Runda ${index + 1}`,
-        ...round.map((duel) => describeDuel(current, duel, false)),
-      ]);
-      const report = [
-        "Identyfikatory Discord zapisanych uczestników",
-        ...current.entries,
-        "",
-        ...rounds,
-      ].join("\n");
-      await channel.messages.edit(event.messageId, {
-        ...card,
-        attachments: [],
-        files: [
-          new AttachmentBuilder(Buffer.from(report), { name: "pojedynki.txt" }),
-        ],
-      });
-    } else {
-      await channel.messages.edit(event.messageId, card);
-    }
+    const { files, ...card } = buildCard(current, Date.now());
+    await channel.messages.edit(
+      event.messageId,
+      files.length ? { ...card, attachments: [], files } : card
+    );
   }
 
   async function processEvent(id: string) {

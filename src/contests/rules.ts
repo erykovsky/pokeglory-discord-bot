@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { duelPokemonTiers } from "./duel-pokemon-pool";
 
 const minute = 60_000;
 export const CONTEST_RULES = {
@@ -57,65 +58,6 @@ export const GUESS_COOLDOWN = 7_000;
 export const NUMBER_HINT_AFTER = 5 * minute;
 export const POKEMON_XP = 15;
 export const DUEL_XP = 10;
-
-const duelPokemonTiers = [
-  {
-    rarity: "Common",
-    weight: 620,
-    species: [
-      "Bulbasaur",
-      "Charmander",
-      "Squirtle",
-      "Pikachu",
-      "Jigglypuff",
-      "Psyduck",
-      "Meowth",
-      "Poliwag",
-      "Geodude",
-    ],
-  },
-  {
-    rarity: "Uncommon",
-    weight: 230,
-    species: [
-      "Eevee",
-      "Growlithe",
-      "Machop",
-      "Abra",
-      "Gastly",
-      "Cubone",
-      "Staryu",
-    ],
-  },
-  {
-    rarity: "Rare",
-    weight: 90,
-    species: [
-      "Raichu",
-      "Gengar",
-      "Alakazam",
-      "Lapras",
-      "Scyther",
-      "Aerodactyl",
-    ],
-  },
-  {
-    rarity: "Ultra Rare",
-    weight: 40,
-    species: ["Arcanine", "Gyarados", "Snorlax", "Dragonair"],
-  },
-  {
-    rarity: "Epic",
-    weight: 14,
-    species: ["Dragonite", "Charizard", "Blastoise", "Venusaur"],
-  },
-  {
-    rarity: "Legendary",
-    weight: 5,
-    species: ["Articuno", "Zapdos", "Moltres", "Mewtwo"],
-  },
-  { rarity: "Mythical", weight: 1, species: ["Mew"] },
-] as const;
 
 type DuelRarity = (typeof duelPokemonTiers)[number]["rarity"];
 

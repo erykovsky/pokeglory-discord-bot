@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { duelPokemonTiers } from "./duel-pokemon-pool";
 import {
   addContestXp,
   drawDuelPokemon,
@@ -130,6 +131,24 @@ test("a saved weekly draw resets weekly XP once and preserves the winner through
     assert.equal(restarted.read().activity.winner.weeklyXp, 5);
   } finally {
     rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test("the duel pool has distinct Kanto species and Orange Islands entries", () => {
+  const pokemon = duelPokemonTiers.flatMap((tier) => [...tier.species]);
+  assert.equal(pokemon.length, 224);
+  const unique = new Set<string>(pokemon);
+  assert.equal(unique.size, pokemon.length);
+  for (const name of [
+    "Nidoran♀",
+    "Farfetch’d",
+    "Mew",
+    "Marill",
+    "Pinkan Nidoran♂",
+    "Crystal Steelix",
+    "Valencian Victreebel",
+  ]) {
+    assert.ok(unique.has(name), name);
   }
 });
 
