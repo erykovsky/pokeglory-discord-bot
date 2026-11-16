@@ -8,7 +8,8 @@ import {
   getContestWeek,
   getDuelWinChance,
   POKEMON_XP,
-  SOLO_DUEL_COOLDOWN,
+  PLAYER_DUEL_COOLDOWN,
+  DUEL_CHALLENGE_DURATION,
 } from "./rules";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -48,10 +49,17 @@ export type Contest = {
   lastAttemptAt?: number;
 };
 
+type DuelChallenge = {
+  challengerId: string;
+  invitedId?: string;
+  expiresAt: number;
+};
+
 type ContestState = {
   version: 1;
   activity: Record<string, Activity>;
   contests: Record<string, Contest>;
+  duelChallenges?: Record<string, DuelChallenge>;
   plans: Partial<
     Record<ContestPlanKey, { key: string; minute: number; started: boolean }>
   >;
@@ -93,31 +101,93 @@ export class ContestStore {
   }
 }
 
-export function playSoloDuel(
+function findDuelCooldown(store: ContestStore, players: string[], now: number) {
+  for (const playerId of players) {
+    const lastDuelAt = store.read().activity[playerId]?.lastPlayerDuelAt;
+    if (lastDuelAt === undefined) continue;
+    const availableAt = lastDuelAt + PLAYER_DUEL_COOLDOWN;
+    if (availableAt > now)
+      return { status: "cooldown" as const, playerId, availableAt };
+  }
+  return null;
+}
+
+export function openDuelChallenge(
   store: ContestStore,
-  playerId: string,
+  id: string,
+  challengerId: string,
+  invitedId?: string,
+  now = Date.now()
+) {
+  if (invitedId === challengerId) return { status: "self" as const };
+  const cooldown = findDuelCooldown(
+    store,
+    invitedId ? [challengerId, invitedId] : [challengerId],
+    now
+  );
+  if (cooldown) return cooldown;
+  const active = Object.entries(store.read().duelChallenges ?? {}).filter(
+    ([, challenge]) => challenge.expiresAt > now
+  );
+  const pending = active.find(
+    ([, challenge]) => challenge.challengerId === challengerId
+  );
+  if (pending)
+    return { status: "pending" as const, expiresAt: pending[1].expiresAt };
+
+  const challenge: DuelChallenge = {
+    challengerId,
+    invitedId,
+    expiresAt: now + DUEL_CHALLENGE_DURATION,
+  };
+  store.update((state) => {
+    state.duelChallenges = Object.fromEntries([...active, [id, challenge]]);
+  });
+  return { status: "created" as const, challenge };
+}
+
+export function acceptDuelChallenge(
+  store: ContestStore,
+  id: string,
+  opponentId: string,
   now = Date.now(),
   roll = randomInt
 ) {
-  const previous = store.read().activity[playerId] ?? EMPTY_ACTIVITY;
-  if (previous.lastSoloDuelAt !== undefined) {
-    const availableAt = previous.lastSoloDuelAt + SOLO_DUEL_COOLDOWN;
-    if (now < availableAt) return { status: "cooldown" as const, availableAt };
-  }
+  const challenge = store.read().duelChallenges?.[id];
+  if (!challenge || challenge.expiresAt <= now)
+    return { status: "closed" as const };
+  const { challengerId, invitedId } = challenge;
+  if (challengerId === opponentId) return { status: "self" as const };
+  if (invitedId && invitedId !== opponentId)
+    return { status: "reserved" as const };
+  const players = [challengerId, opponentId];
+  const cooldown = findDuelCooldown(store, players, now);
+  if (cooldown) return cooldown;
 
-  const player = drawDuelPokemon(roll);
-  const opponent = drawDuelPokemon(roll);
-  const chance = getDuelWinChance(player, opponent);
-  const won = roll(100) < chance;
-  const activity = store.update((state) => {
-    const next = {
-      ...addDuelXp(previous, getContestWeek(now)),
-      lastSoloDuelAt: now,
-    };
-    state.activity[playerId] = next;
-    return next;
+  const challengerPokemon = drawDuelPokemon(roll);
+  const opponentPokemon = drawDuelPokemon(roll);
+  const challengerChance = getDuelWinChance(challengerPokemon, opponentPokemon);
+  const winnerId = roll(100) < challengerChance ? challengerId : opponentId;
+  const week = getContestWeek(now);
+  store.update((state) => {
+    delete state.duelChallenges?.[id];
+    for (const playerId of players) {
+      const previous = state.activity[playerId] ?? EMPTY_ACTIVITY;
+      state.activity[playerId] = {
+        ...addDuelXp(previous, week),
+        lastPlayerDuelAt: now,
+      };
+    }
   });
-  return { status: "played" as const, player, opponent, chance, won, activity };
+  return {
+    status: "played" as const,
+    challengerId,
+    opponentId,
+    challengerPokemon,
+    opponentPokemon,
+    challengerChance,
+    winnerId,
+  };
 }
 
 export function settleContest(

@@ -40,14 +40,16 @@ import {
   SCHEDULED_CONTESTS,
 } from "./rules";
 import {
+  acceptDuelChallenge,
   type Contest,
   ContestStore,
-  playSoloDuel,
+  openDuelChallenge,
   settleContest,
   type Reward,
 } from "./store";
 
 const PREFIX = "pg-contest:";
+const DUEL_CHALLENGE_PREFIX = "pg-duel:";
 const DUEL_SIGNUP_LABEL = "Dołącz do turnieju";
 const MAX_EMBED_DESCRIPTION_LENGTH = 4096;
 const kinds = Object.keys(CONTEST_RULES) as ContestKind[];
@@ -115,8 +117,15 @@ export const contestCommands: ChatInputApplicationCommandData[] = [
         {
           name: "pojedynek",
           description:
-            "Rozegraj pojedynek z RotomBotem i zdobądź 10 XP. Raz na godzinę.",
+            "Rzuć wyzwanie innemu graczowi. Za pojedynek oboje dostaniecie 10 XP.",
           contexts: [InteractionContextType.Guild],
+          options: [
+            {
+              name: "gracz",
+              description: "Opcjonalnie wybierz, kogo chcesz wyzwać.",
+              type: ApplicationCommandOptionType.User as const,
+            },
+          ],
         },
       ]
     : []),
@@ -159,6 +168,34 @@ function isVerified(member: GuildMember | null) {
     : member.roles.cache.some(
         (role) => role.name === config.POKEGLORY_VERIFIED_ROLE_NAME
       );
+}
+
+type DuelChallengeFailure =
+  | Exclude<ReturnType<typeof openDuelChallenge>, { status: "created" }>
+  | Exclude<ReturnType<typeof acceptDuelChallenge>, { status: "played" }>;
+
+function describeDuelChallengeFailure(
+  failure: DuelChallengeFailure,
+  playerId: string
+) {
+  switch (failure.status) {
+    case "closed":
+      return "Wyzwanie wygasło lub pojedynek został już rozegrany.";
+    case "self":
+      return "Do pojedynku potrzebujesz drugiego gracza.";
+    case "reserved":
+      return "To wyzwanie jest skierowane do wskazanego gracza.";
+    case "pending":
+      return `Masz już otwarte wyzwanie. Zapisy zamkną się <t:${Math.ceil(
+        failure.expiresAt / 1000
+      )}:R>.`;
+    case "cooldown":
+      return failure.playerId === playerId
+        ? `Następny pojedynek możesz rozegrać <t:${Math.ceil(
+            failure.availableAt / 1000
+          )}:R>.`
+        : "Przeciwnik jest jeszcze w godzinnej przerwie po poprzednim pojedynku.";
+  }
 }
 
 class ContestApiError extends Error {
@@ -525,7 +562,7 @@ export function startContestSystem(
 
   function getDuelSignupInstructions(now = Date.now()) {
     if (options.duelChannel)
-      return `Wpisz **/pojedynek** na <#${options.duelChannel}>. Walka z RotomBotem odbędzie się od razu i da Ci **${DUEL_XP} XP** także za przegraną. Po walce możesz wrócić do zapisów na losowanie.`;
+      return `Wpisz **/pojedynek** na <#${options.duelChannel}> albo podejmij czyjeś wyzwanie. Po akceptacji RotomBot rozegra walkę dwóch graczy i da każdemu **${DUEL_XP} XP**.`;
 
     const channelId = options.channels.games;
     if (!channelId) return null;
@@ -665,8 +702,7 @@ export function startContestSystem(
       ) {
         const duelChannel = options.duelChannel;
         if (!duelChannel) return;
-        const member = interaction.inCachedGuild() ? interaction.member : null;
-        if (!member || !isVerified(member)) {
+        if (!interaction.inCachedGuild() || !isVerified(interaction.member)) {
           await interaction.reply({
             content: "Połącz konto PokeGlory komendą /link.",
             flags: MessageFlags.Ephemeral,
@@ -680,30 +716,127 @@ export function startContestSystem(
           });
           return;
         }
-        const now = Date.now();
-        const player = `<@${member.id}>`;
-        const duel = playSoloDuel(store, member.id, now);
-        if (duel.status === "cooldown") {
+
+        const target = interaction.options.getUser("gracz");
+        const playerId = interaction.user.id;
+        if (
+          target &&
+          (target.bot || !isVerified(interaction.options.getMember("gracz")))
+        ) {
           await interaction.reply({
-            content: `Następny pojedynek z RotomBotem możesz rozegrać <t:${Math.ceil(
-              duel.availableAt / 1000
-            )}:R>.`,
+            content: "Wybierz gracza z kontem połączonym z PokeGlory.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+        const result = openDuelChallenge(
+          store,
+          interaction.id,
+          playerId,
+          target?.id
+        );
+        if (result.status !== "created") {
+          await interaction.reply({
+            content: describeDuelChallengeFailure(result, playerId),
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const card = new EmbedBuilder()
+          .setTitle("Wyzwanie na pojedynek")
+          .setColor(0x36b28c)
+          .setDescription(
+            [
+              target
+                ? `<@${playerId}> wyzywa <@${target.id}>.`
+                : `<@${playerId}> szuka przeciwnika.`,
+              "Po zaakceptowaniu wyzwania obaj gracze dostaną losowego Pokémona, a RotomBot rozegra walkę.",
+              `**${DUEL_XP} XP** dla każdego gracza. Zapisy do <t:${Math.ceil(
+                result.challenge.expiresAt / 1000
+              )}:t>.`,
+            ].join("\n")
+          );
+        await interaction.reply({
+          content: target ? `<@${target.id}>` : undefined,
+          embeds: [card],
+          components: [
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`${DUEL_CHALLENGE_PREFIX}${interaction.id}`)
+                .setLabel("Podejmij wyzwanie")
+                .setStyle(ButtonStyle.Success)
+            ),
+          ],
+          allowedMentions: { parse: [], users: target ? [target.id] : [] },
+        });
+      } else if (
+        interaction.isButton() &&
+        interaction.customId.startsWith(DUEL_CHALLENGE_PREFIX)
+      ) {
+        if (
+          !options.duelChannel ||
+          interaction.channelId !== options.duelChannel
+        )
+          return;
+        if (!interaction.inCachedGuild() || !isVerified(interaction.member)) {
+          await interaction.reply({
+            content: "Połącz konto PokeGlory komendą /link.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+        const id = interaction.customId.slice(DUEL_CHALLENGE_PREFIX.length);
+        const challenge = store.read().duelChallenges?.[id];
+        if (!challenge || challenge.expiresAt <= Date.now()) {
+          await interaction.reply({
+            content: describeDuelChallengeFailure(
+              { status: "closed" },
+              interaction.user.id
+            ),
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        await interaction.deferUpdate();
+        const challenger = await interaction.guild.members
+          .fetch(challenge.challengerId)
+          .catch(() => null);
+        if (!challenger || !isVerified(challenger)) {
+          await interaction.followUp({
+            content: "Wzywający musi mieć połączone konto PokeGlory.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+        const now = Date.now();
+        const duel = acceptDuelChallenge(store, id, interaction.user.id, now);
+        if (duel.status !== "played") {
+          await interaction.followUp({
+            content: describeDuelChallengeFailure(duel, interaction.user.id),
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
 
         const embed = new EmbedBuilder()
-          .setTitle("Pojedynek z RotomBotem")
-          .setColor(duel.won ? 0x36b28c : 0x607493)
+          .setTitle("Wynik pojedynku")
+          .setColor(0x36b28c)
           .setDescription(
             [
-              `**${player}** · ${formatDuelPokemon(duel.player)}`,
-              `**RotomBot** · ${formatDuelPokemon(duel.opponent)}`,
-              `Szanse ${duel.chance}% do ${100 - duel.chance}%`,
+              `**<@${duel.challengerId}>** · ${formatDuelPokemon(
+                duel.challengerPokemon
+              )}`,
+              `**<@${duel.opponentId}>** · ${formatDuelPokemon(
+                duel.opponentPokemon
+              )}`,
+              `Szanse ${duel.challengerChance}% do ${
+                100 - duel.challengerChance
+              }%`,
               "",
-              duel.won ? `**Wygrywa ${player}.**` : "**Wygrywa RotomBot.**",
-              `**+${DUEL_XP} XP**. Ten pojedynek daje Ci dostęp do losowań do końca tygodnia.`,
+              `**Wygrywa <@${duel.winnerId}>.**`,
+              `Obaj gracze dostają po **${DUEL_XP} XP** i dostęp do dziennych losowań do końca tygodnia.`,
             ].join("\n")
           );
         const daily = findActive("daily");
@@ -720,14 +853,16 @@ export function startContestSystem(
                 ),
               ]
             : [];
-        await interaction.reply({
+        await interaction.editReply({
+          content: null,
           embeds: [embed],
           components,
           allowedMentions: { parse: [] },
         });
-        void syncLevelRoles(member, duel.activity).catch((error) =>
-          console.error("[Konkursy: role]", error)
-        );
+        for (const member of [challenger, interaction.member])
+          void syncLevelRoles(member).catch((error) =>
+            console.error("[Konkursy: role]", error)
+          );
       } else if (
         interaction.isChatInputCommand() &&
         interaction.commandName === "konkurs"

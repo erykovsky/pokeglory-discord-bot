@@ -48,7 +48,7 @@ export type Activity = {
   weeklyXp: number;
   xpWeek?: string;
   lastDuelWeek?: string;
-  lastSoloDuelAt?: number;
+  lastPlayerDuelAt?: number;
 };
 
 export const EMPTY_ACTIVITY: Activity = {
@@ -59,7 +59,8 @@ export const GUESS_COOLDOWN = 7_000;
 export const NUMBER_HINT_AFTER = 5 * minute;
 export const POKEMON_XP = 15;
 export const DUEL_XP = 10;
-export const SOLO_DUEL_COOLDOWN = 60 * minute;
+export const PLAYER_DUEL_COOLDOWN = 60 * minute;
+export const DUEL_CHALLENGE_DURATION = 5 * minute;
 
 type DuelRarity = (typeof duelPokemonTiers)[number]["rarity"];
 

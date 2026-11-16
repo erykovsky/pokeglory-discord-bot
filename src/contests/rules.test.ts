@@ -18,9 +18,14 @@ import {
   getWeeklyXp,
   normalizePokemonGuess,
   numberHint,
-  SOLO_DUEL_COOLDOWN,
+  PLAYER_DUEL_COOLDOWN,
 } from "./rules";
-import { ContestStore, playSoloDuel, settleContest } from "./store";
+import {
+  acceptDuelChallenge,
+  ContestStore,
+  openDuelChallenge,
+  settleContest,
+} from "./store";
 
 test("a duel unlocks daily draws until Monday in Warsaw, independently of other XP", () => {
   const sunday = Date.parse("2026-11-15T22:59:59Z");
@@ -102,50 +107,101 @@ test("both sides receive 10 XP per matchup exactly once and each keeps their Pok
   }
 });
 
-test("a solo duel gives XP on a loss and its per-player cooldown survives a restart", () => {
-  const folder = mkdtempSync(join(tmpdir(), "pg-solo-duel-"));
+test("a player challenge awards both players once and preserves cooldown across restart", () => {
+  const folder = mkdtempSync(join(tmpdir(), "pg-player-duel-"));
   try {
     const path = join(folder, "contests.json");
     const store = new ContestStore(path);
     const now = Date.parse("2026-11-15T22:40:00Z");
-    const loss = playSoloDuel(store, "player", now, (max) => max - 1);
-    assert.equal(loss.status, "played");
-    if (loss.status !== "played") return;
-    assert.equal(loss.won, false);
-    assert.equal(loss.activity.totalXp, 10);
     assert.equal(
-      getContestEligibility("daily", loss.activity, getContestWeek(now)),
-      null
+      openDuelChallenge(store, "self", "one", "one", now).status,
+      "self"
+    );
+    assert.equal(
+      openDuelChallenge(store, "invite", "one", "two", now).status,
+      "created"
+    );
+    assert.equal(
+      openDuelChallenge(store, "duplicate", "one", "three", now).status,
+      "pending"
+    );
+    assert.deepEqual(store.read().activity, {});
+    assert.equal(
+      acceptDuelChallenge(store, "invite", "one", now).status,
+      "self"
+    );
+    assert.equal(
+      acceptDuelChallenge(store, "invite", "three", now).status,
+      "reserved"
     );
 
     const restarted = new ContestStore(path);
+    const match = acceptDuelChallenge(
+      restarted,
+      "invite",
+      "two",
+      now,
+      (max) => max - 1
+    );
+    assert.equal(match.status, "played");
+    if (match.status !== "played") return;
+    assert.equal(match.winnerId, "two");
+    for (const player of ["one", "two"]) {
+      const activity = restarted.read().activity[player];
+      assert.equal(activity.totalXp, 10);
+      assert.equal(
+        getContestEligibility("daily", activity, getContestWeek(now)),
+        null
+      );
+    }
+    const recovered = new ContestStore(path);
+    assert.equal(
+      acceptDuelChallenge(recovered, "invite", "two", now).status,
+      "closed"
+    );
     assert.deepEqual(
-      playSoloDuel(restarted, "player", now + SOLO_DUEL_COOLDOWN - 1),
+      openDuelChallenge(
+        recovered,
+        "other",
+        "three",
+        "two",
+        now + PLAYER_DUEL_COOLDOWN - 1
+      ),
       {
         status: "cooldown",
-        availableAt: now + SOLO_DUEL_COOLDOWN,
+        playerId: "two",
+        availableAt: now + PLAYER_DUEL_COOLDOWN,
       }
     );
-    assert.equal(restarted.read().activity.player.totalXp, 10);
-    const other = playSoloDuel(restarted, "another", now, () => 0);
-    assert.equal(other.status, "played");
-    if (other.status === "played") assert.equal(other.won, true);
-
-    const renewed = playSoloDuel(
-      restarted,
-      "player",
-      now + SOLO_DUEL_COOLDOWN,
-      () => 0
+    assert.equal(
+      openDuelChallenge(recovered, "open", "three", undefined, now).status,
+      "created"
     );
-    assert.equal(renewed.status, "played");
-    if (renewed.status !== "played") return;
-    assert.equal(renewed.activity.totalXp, 20);
-    assert.equal(renewed.activity.weeklyXp, 10);
+    assert.equal(
+      acceptDuelChallenge(recovered, "open", "two", now).status,
+      "cooldown"
+    );
+    assert.equal(
+      acceptDuelChallenge(recovered, "open", "four", now, () => 0).status,
+      "played"
+    );
+
+    const next = now + PLAYER_DUEL_COOLDOWN;
+    assert.equal(
+      openDuelChallenge(recovered, "next", "one", "two", next).status,
+      "created"
+    );
+    assert.equal(
+      acceptDuelChallenge(recovered, "next", "two", next, () => 0).status,
+      "played"
+    );
+    assert.equal(recovered.read().activity.one.totalXp, 20);
+    assert.equal(recovered.read().activity.one.weeklyXp, 10);
     assert.equal(
       getContestEligibility(
         "daily",
-        renewed.activity,
-        getContestWeek(now + SOLO_DUEL_COOLDOWN)
+        recovered.read().activity.one,
+        getContestWeek(next)
       ),
       null
     );
