@@ -12,6 +12,7 @@ import {
   getContestEligibility,
   getContestLevel,
   getContestWeek,
+  getDuelScheduleWindow,
   getDuelWinChance,
   getScheduleSlot,
   getWeeklyXp,
@@ -212,4 +213,19 @@ test("guess normalization, hint boundaries and Warsaw schedule", () => {
   const now = Date.parse("2026-10-31T23:30:00Z");
   assert.equal(getScheduleSlot("weekly", now)?.key, "2026-11-01");
   assert.equal(getScheduleSlot("monthly", now), null);
+});
+
+test("three non-overlapping duel windows have independent plan keys", () => {
+  const getKey = (hour: number, minute = 0) =>
+    getDuelScheduleWindow(hour * 60 + minute)?.key;
+  assert.equal(getKey(11, 59), undefined);
+  assert.equal(getKey(12), "games:midday");
+  assert.equal(getKey(13, 59), "games:midday");
+  assert.equal(getKey(14), undefined);
+  assert.equal(getKey(15), "games:afternoon");
+  assert.equal(getKey(16, 59), "games:afternoon");
+  assert.equal(getKey(17), undefined);
+  assert.equal(getKey(18), "games");
+  assert.equal(getDuelScheduleWindow(18 * 60)?.lastMinute, 21 * 60);
+  assert.equal(getKey(22), undefined);
 });

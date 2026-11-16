@@ -19,13 +19,14 @@ import { config } from "../config";
 import {
   CONTEST_RULES,
   type ContestKind,
+  type ContestPlanKey,
   type DuelMatch,
-  type ScheduledContest,
   DUEL_XP,
   EMPTY_ACTIVITY,
   getContestEligibility,
   getContestLevel,
   getContestWeek,
+  getDuelScheduleWindow,
   getScheduleSlot,
   getWeeklyXp,
   GUESS_COOLDOWN,
@@ -486,7 +487,7 @@ export function startContestSystem(
   async function start(
     kind: ContestKind,
     max = 1000,
-    scheduled?: ScheduledContest
+    scheduled?: ContestPlanKey
   ) {
     const channelId = options.channels[kind];
     if (!channelId)
@@ -748,12 +749,19 @@ export function startContestSystem(
         for (const kind of SCHEDULED_CONTESTS) {
           if (!options.channels[kind]) continue;
           const slot = getScheduleSlot(kind, now);
+          if (!slot) continue;
+          const duelWindow =
+            kind === "games"
+              ? getDuelScheduleWindow(slot.minuteOfDay)
+              : undefined;
           if (
-            !slot ||
-            slot.minuteOfDay < 14 * 60 ||
-            (slot.minuteOfDay >= 22 * 60 && kind !== "daily")
+            kind === "games"
+              ? !duelWindow
+              : slot.minuteOfDay < 14 * 60 ||
+                (slot.minuteOfDay >= 22 * 60 && kind !== "daily")
           )
             continue;
+
           const plans = store.read().plans;
           const tournament = plans.games;
           const daily = plans.daily;
@@ -767,7 +775,8 @@ export function startContestSystem(
           )
             continue;
 
-          const current = plans[kind];
+          const planKey = duelWindow?.key ?? kind;
+          const current = plans[planKey];
           const minute =
             kind === "daily" && tournament ? tournament.minute : undefined;
           const plan =
@@ -775,9 +784,14 @@ export function startContestSystem(
               ? current
               : store.update(
                   (state) =>
-                    (state.plans[kind] = {
+                    (state.plans[planKey] = {
                       key: slot.key,
-                      minute: minute ?? randomInt(14 * 60, 21 * 60 + 1),
+                      minute:
+                        minute ??
+                        randomInt(
+                          duelWindow?.firstMinute ?? 14 * 60,
+                          (duelWindow?.lastMinute ?? 21 * 60) + 1
+                        ),
                       started: false,
                     })
                 );
@@ -787,7 +801,7 @@ export function startContestSystem(
             findActive(kind)
           )
             continue;
-          await start(kind, 1000, kind).catch((error) =>
+          await start(kind, 1000, planKey).catch((error) =>
             console.error(`[Konkursy: harmonogram ${kind}]`, error)
           );
         }

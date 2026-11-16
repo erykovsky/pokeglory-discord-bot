@@ -12,9 +12,9 @@ import { dirname } from "node:path";
 import type {
   Activity,
   ContestKind,
+  ContestPlanKey,
   DuelMatch,
   DuelPokemon,
-  ScheduledContest,
 } from "./rules";
 
 export type Reward = { currency: "yen" | "pz"; amount: number };
@@ -50,7 +50,7 @@ type ContestState = {
   activity: Record<string, Activity>;
   contests: Record<string, Contest>;
   plans: Partial<
-    Record<ScheduledContest, { key: string; minute: number; started: boolean }>
+    Record<ContestPlanKey, { key: string; minute: number; started: boolean }>
   >;
 };
 

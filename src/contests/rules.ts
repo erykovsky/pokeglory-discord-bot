@@ -205,6 +205,38 @@ export const SCHEDULED_CONTESTS = [
   "pokemon",
 ] as const;
 export type ScheduledContest = (typeof SCHEDULED_CONTESTS)[number];
+const duelScheduleWindows = [
+  {
+    key: "games:midday",
+    firstMinute: 12 * 60,
+    lastMinute: 14 * 60 - 1,
+    expiresAt: 14 * 60,
+  },
+  {
+    key: "games:afternoon",
+    firstMinute: 15 * 60,
+    lastMinute: 17 * 60 - 1,
+    expiresAt: 17 * 60,
+  },
+  {
+    key: "games",
+    firstMinute: 18 * 60,
+    lastMinute: 21 * 60,
+    expiresAt: 22 * 60,
+  },
+] as const;
+
+export type ContestPlanKey =
+  | ScheduledContest
+  | (typeof duelScheduleWindows)[number]["key"];
+
+export function getDuelScheduleWindow(minuteOfDay: number) {
+  return duelScheduleWindows.find(
+    ({ firstMinute, expiresAt }) =>
+      minuteOfDay >= firstMinute && minuteOfDay < expiresAt
+  );
+}
+
 const warsawClock = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Warsaw",
   hourCycle: "h23",
