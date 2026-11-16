@@ -45,6 +45,7 @@ import {
 } from "./store";
 
 const PREFIX = "pg-contest:";
+const DUEL_SIGNUP_LABEL = "Dołącz do turnieju";
 const MAX_EMBED_DESCRIPTION_LENGTH = 4096;
 const kinds = Object.keys(CONTEST_RULES) as ContestKind[];
 const formatNumber = new Intl.NumberFormat("pl-PL");
@@ -264,7 +265,7 @@ function buildCard(event: Contest, now: number) {
         );
       } else if (event.kind === "daily") {
         description.push(
-          "Jeden pojedynek w tym tygodniu daje dostęp do losowania. Aby zawalczyć, kliknij **Zapisz się** pod ogłoszeniem **Turniej pojedynków**."
+          `Jeden pojedynek w tym tygodniu daje dostęp do losowania. Aby zawalczyć, kliknij **${DUEL_SIGNUP_LABEL}** pod ogłoszeniem **Turniej pojedynków**.`
         );
       } else {
         description.push(`**Wymagany poziom** ${rule.level}`);
@@ -298,8 +299,18 @@ function buildCard(event: Contest, now: number) {
           new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
               .setCustomId(`${PREFIX}join:${event.id}`)
-              .setLabel("Zapisz się")
-              .setStyle(ButtonStyle.Success),
+              .setLabel(
+                event.kind === "games"
+                  ? DUEL_SIGNUP_LABEL
+                  : event.kind === "daily"
+                  ? "Zapisz się do losowania"
+                  : "Zapisz się"
+              )
+              .setStyle(
+                event.kind === "daily"
+                  ? ButtonStyle.Primary
+                  : ButtonStyle.Success
+              ),
             new ButtonBuilder()
               .setCustomId(`${PREFIX}entries:${event.id}`)
               .setLabel("Uczestnicy")
@@ -493,9 +504,9 @@ export function startContestSystem(
       tournament?.phase === "open" &&
       tournament.closesAt > now &&
       tournament.messageId
-        ? `Kliknij **Zapisz się** w [otwartym turnieju](https://discord.com/channels/${options.guildId}/${tournament.channelId}/${tournament.messageId}).`
-        : `Gdy pojawi się ogłoszenie **Turniej pojedynków** na <#${channelId}>, kliknij pod nim **Zapisz się**.`;
-    return `${signup} Po zamknięciu zapisów RotomBot sam dobierze pary i rozegra pojedynki.`;
+        ? `Kliknij **${DUEL_SIGNUP_LABEL}** w [otwartym turnieju](https://discord.com/channels/${options.guildId}/${tournament.channelId}/${tournament.messageId}).`
+        : `Gdy pojawi się ogłoszenie **Turniej pojedynków** na <#${channelId}>, kliknij pod nim **${DUEL_SIGNUP_LABEL}**.`;
+    return `${signup} Gdy zapiszą się co najmniej dwie osoby, RotomBot sam rozegra pojedynki po zamknięciu zapisów.`;
   }
 
   async function start(
@@ -686,7 +697,7 @@ export function startContestSystem(
             const signupHelp =
               event.kind === "daily" ? getDuelSignupInstructions() : null;
             reply = signupHelp
-              ? `${eligibility}\n\n${signupHelp}`
+              ? `To są zapisy do losowania. ${eligibility}\n\n${signupHelp}`
               : eligibility;
           } else if (event.entries.includes(userId))
             reply = "Masz już zapis na ten konkurs.";
@@ -694,7 +705,12 @@ export function startContestSystem(
             store.update((state) => {
               state.contests[id].entries.push(userId);
             });
-            reply = "Zapisano Cię na konkurs.";
+            reply =
+              event.kind === "games"
+                ? "Dołączyłeś do turnieju. RotomBot rozegra pojedynki po zamknięciu zapisów."
+                : event.kind === "daily"
+                ? "Zapisano Cię do dziennego losowania."
+                : "Zapisano Cię na konkurs.";
           }
         }
         await interaction.reply({
