@@ -215,12 +215,14 @@ test("guess normalization, hint boundaries and Warsaw schedule", () => {
   assert.equal(getScheduleSlot("monthly", now), null);
 });
 
-test("six duel windows have independent plan keys and non-overlapping start times", () => {
-  const windowStarts = [10, 12, 14, 16, 18, 20];
+test("eight duel windows have independent plan keys and non-overlapping start times", () => {
+  const windowStarts = [7, 8, 10, 12, 14, 16, 18, 20];
   const windows = windowStarts.map((hour) => getDuelScheduleWindow(hour * 60)!);
   assert.deepEqual(
     windows.map((window) => window.key),
     [
+      "games:early-morning",
+      "games:late-morning",
       "games:morning",
       "games:midday",
       "games:early-afternoon",
@@ -235,7 +237,7 @@ test("six duel windows have independent plan keys and non-overlapping start time
     if (index < windows.length - 1)
       assert.equal(window.lastMinute + 1, windows[index + 1].firstMinute);
   }
-  assert.equal(windows[5].lastMinute, 21 * 60);
-  assert.equal(getDuelScheduleWindow(10 * 60 - 1), undefined);
+  assert.equal(windows[7].lastMinute, 21 * 60);
+  assert.equal(getDuelScheduleWindow(7 * 60 - 1), undefined);
   assert.equal(getDuelScheduleWindow(22 * 60), undefined);
 });

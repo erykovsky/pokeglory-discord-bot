@@ -207,6 +207,18 @@ export const SCHEDULED_CONTESTS = [
 export type ScheduledContest = (typeof SCHEDULED_CONTESTS)[number];
 const duelScheduleWindows = [
   {
+    key: "games:early-morning",
+    firstMinute: 7 * 60,
+    lastMinute: 8 * 60 - 1,
+    expiresAt: 8 * 60,
+  },
+  {
+    key: "games:late-morning",
+    firstMinute: 8 * 60,
+    lastMinute: 10 * 60 - 1,
+    expiresAt: 10 * 60,
+  },
+  {
     key: "games:morning",
     firstMinute: 10 * 60,
     lastMinute: 12 * 60 - 1,
