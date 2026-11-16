@@ -264,7 +264,7 @@ function buildCard(event: Contest, now: number) {
         );
       } else if (event.kind === "daily") {
         description.push(
-          "Rozegraj co najmniej jeden pojedynek w tym tygodniu, żeby się zapisać."
+          "Jeden pojedynek w tym tygodniu daje dostęp do losowania. Aby zawalczyć, kliknij **Zapisz się** pod ogłoszeniem **Turniej pojedynków**."
         );
       } else {
         description.push(`**Wymagany poziom** ${rule.level}`);
@@ -484,6 +484,20 @@ export function startContestSystem(
     );
   }
 
+  function getDuelSignupInstructions(now = Date.now()) {
+    const channelId = options.channels.games;
+    if (!channelId) return null;
+
+    const tournament = findActive("games");
+    const signup =
+      tournament?.phase === "open" &&
+      tournament.closesAt > now &&
+      tournament.messageId
+        ? `Kliknij **Zapisz się** w [otwartym turnieju](https://discord.com/channels/${options.guildId}/${tournament.channelId}/${tournament.messageId}).`
+        : `Gdy pojawi się ogłoszenie **Turniej pojedynków** na <#${channelId}>, kliknij pod nim **Zapisz się**.`;
+    return `${signup} Po zamknięciu zapisów RotomBot sam dobierze pary i rozegra pojedynki.`;
+  }
+
   async function start(
     kind: ContestKind,
     max = 1000,
@@ -586,8 +600,9 @@ export function startContestSystem(
         const activity = getActivity(interaction.user.id);
         const week = getContestWeek(Date.now());
         const weeklyXp = getWeeklyXp(activity, week);
-        const duelStatus =
-          activity.lastDuelWeek === week ? "rozegrany" : "do rozegrania";
+        const playedDuel = activity.lastDuelWeek === week;
+        const duelStatus = playedDuel ? "rozegrany" : "do rozegrania";
+        const signupHelp = playedDuel ? null : getDuelSignupInstructions();
         await interaction.reply({
           content: `**Poziom Discorda** ${getContestLevel(
             activity.totalXp
@@ -597,7 +612,9 @@ export function startContestSystem(
             weeklyXp
           )}\n**Tygodniowy XP** ${formatNumber.format(
             weeklyXp
-          )}\n**Pojedynek w tym tygodniu** ${duelStatus}`,
+          )}\n**Pojedynek w tym tygodniu** ${duelStatus}${
+            signupHelp ? `\n\n${signupHelp}` : ""
+          }`,
           flags: MessageFlags.Ephemeral,
         });
       } else if (
@@ -665,8 +682,13 @@ export function startContestSystem(
           );
           if (!isVerified(member))
             reply = "Połącz konto PokeGlory komendą /link.";
-          else if (eligibility) reply = eligibility;
-          else if (event.entries.includes(userId))
+          else if (eligibility) {
+            const signupHelp =
+              event.kind === "daily" ? getDuelSignupInstructions() : null;
+            reply = signupHelp
+              ? `${eligibility}\n\n${signupHelp}`
+              : eligibility;
+          } else if (event.entries.includes(userId))
             reply = "Masz już zapis na ten konkurs.";
           else {
             store.update((state) => {
