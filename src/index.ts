@@ -1,11 +1,13 @@
 import {
   Client,
+  Events,
   GatewayIntentBits,
   Interaction,
   Message,
   Partials,
 } from "discord.js";
 import { config } from "./config";
+import { contestCommands, contestOptions, startContestSystem } from "./contests/discord";
 import linkCommand from "./commands/link";
 import profilCommand from "./commands/profil";
 import dailyCommand from "./commands/daily";
@@ -41,13 +43,13 @@ const client = new Client({
 // Define the specific channel ID where the bot should operate
 const TARGET_CHANNEL_ID = "1416080627081412659";
 
-client.on("ready", async () => {
+client.once(Events.ClientReady, async (readyClient) => {
   console.log("Discord bot is ready!");
 
   const commands = [
     linkCommand,
     profilCommand,
-    dailyCommand,
+    ...(contestOptions ? contestCommands : [dailyCommand]),
     losujCommand,
     muteCommand,
     unmuteCommand,
@@ -71,6 +73,7 @@ client.on("ready", async () => {
   startOrganizationRankingMirror(client);
   startVerifiedRoleSync(client);
   startTicketSystem(client);
+  if (contestOptions) startContestSystem(readyClient, contestOptions);
 });
 
 // Handle slash commands
@@ -83,7 +86,7 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     await linkCommand.execute(interaction);
   } else if (commandName === "profil") {
     await profilCommand.execute(interaction);
-  } else if (commandName === "daily") {
+  } else if (commandName === "daily" && !contestOptions) {
     await dailyCommand.execute(interaction);
   } else if (commandName === "losuj") {
     await losujCommand.execute(interaction);

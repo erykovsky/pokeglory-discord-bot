@@ -11,7 +11,8 @@
     "start": "node .",
     "build": "tsup src/index.ts --minify",
     "format": "prettier --write \"**/*.{json,ts}\"",
-    "lint": "eslint . --ext ts --fix"
+    "lint": "eslint . --ext ts --fix",
+    "test": "tsx --test src/contests/*.test.ts"
   },
   "dependencies": {
     "axios": "^1.12.0",

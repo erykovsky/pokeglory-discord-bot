@@ -29,3 +29,41 @@ Token Discorda trzymaj tylko w pliku `.env` na VPS-ie. Nie commituj `.env` do re
 Do parowania kont ustaw też `POKEGLORY_DISCORD_BOT_SECRET` w `.env` bota oraz tę samą wartość jako `DISCORD_BOT_SECRET` w `.env.production` aplikacji PokeGlory.
 Mirror czatu gry domyślnie szuka kanału `💬｜chat-w-grze`; można go też wskazać konkretnie przez `POKEGLORY_GAME_CHAT_CHANNEL_ID`.
 Mirror aktualizacji gry domyślnie szuka kanału `📢｜aktualizacje`; można go też wskazać konkretnie przez `POKEGLORY_UPDATES_CHANNEL_ID`.
+
+## Konkursy zamiast /daily
+
+1. W grze zastosuj kompatybilną migrację tabeli `discord_contests` lub `db:push`
+   i wdroż endpoint `/api/discord/contests` przed przełączeniem bota.
+2. W konfiguracji **gry** ustaw `DISCORD_CONTEST_REWARDS` jako obiekt JSON.
+   Klucze to `daily`, `weekly`, `monthly`, `games` i `numbers`. Wartość to
+   `{"currency":"yen","amount":50000}` albo `{"currency":"pz","amount":10}`.
+   To przykładowe wartości do ustalenia przez administrację. Brak nagrody w konfiguracji
+   oznacza, że bot nie otworzy danego konkursu. Zgadywanie Pokémona przyznaje 15 XP na Discordzie.
+3. Przygotuj osobną kategorię Discord dla konkursów poza
+   `POKEGLORY_PROTECTED_CATEGORY_IDS`, żeby synchronizacja uprawnień dostępu do gry
+   nie nadpisywała blokad poziomu. W kanałach o wymaganym poziomie
+   odbierz `View Channel` roli `@everyone` i przyznaj go odpowiedniej roli poziomu.
+   Daj botowi dostęp do kanałów, wysyłania embedów i załączników oraz do zarządzania
+   rolami poziomu. Role poziomu umieść poniżej roli bota.
+4. W konfiguracji **bota** ustaw `POKEGLORY_GUILD_ID`, istniejący sekret i
+   `POKEGLORY_CONTESTS`. Obiekt zawiera pola:
+   - `xpChannels` z ID kanałów rozmów, na których można zdobywać XP.
+   - `channels` z ID kanałów dla wybranych rodzajów. Dostępne klucze to `daily`,
+     `weekly`, `monthly`, `games`, `numbers` i `pokemon`. Pominięcie klucza
+     wyłącza dany rodzaj. Zgadywanki potrzebują osobnych kanałów.
+   - `levelRoles` z parami poziom i ID roli. Przykładowe poziomy to `2` dla kanału
+     tygodniowego i `3` dla miesięcznego. Bot przyznaje role wraz z postępem.
+   - `automatic` jako `true` dla losowego startu między 14:00 a 21:00 czasu
+     warszawskiego. Dzienny konkurs i zgadywanie Pokémona mogą zacząć się codziennie,
+     tygodniowy w niedzielę, a miesięczny ostatniego dnia miesiąca. Administrator
+     może uruchomić dowolny aktywny rodzaj komendą `/konkurs`.
+5. Po przełączeniu bota gracze używają `/aktywnosc` do podglądu poziomu i XP.
+   Bot przyznaje 5 XP za kwalifikującą się wiadomość najwyżej raz na minutę,
+   pomija krótkie wiadomości i bezpośrednie powtórki. Tygodniowy XP resetuje się
+   po zakończeniu konkursu tygodniowego.
+
+Zachowaj wolumen `./data:/app/data`, w którym jest plik `contests.json`.
+Przechowuje aktywność, zapisy i wynik w trakcie wypłaty. Uruchamiaj jedną
+instancję bota zapisującą ten plik. Ponowienie wypłaty z tym samym identyfikatorem
+nie powoduje ponownego przyznania nagrody. Przed zmianą ID kanału pozostaw
+botowi dostęp do poprzedniego do końca otwartego konkursu.
