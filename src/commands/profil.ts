@@ -1,4 +1,9 @@
-import { ChatInputCommandInteraction, EmbedBuilder } from "discord.js";
+import {
+  ApplicationCommandOptionType,
+  ChatInputCommandInteraction,
+  EmbedBuilder,
+  MessageFlags,
+} from "discord.js";
 
 import { config } from "../config";
 import { assignVerifiedRole } from "../verified-role";
@@ -101,18 +106,27 @@ function buildProfileEmbed(
 
 const profilCommand = {
   name: "profil",
-  description: "Pokaż swój profil PokeGlory.",
+  description: "Sprawdź swój profil PokeGlory lub pokaż go innym.",
+  options: [
+    {
+      name: "publicznie",
+      description: "Pokaż swój profil wszystkim na tym kanale.",
+      type: ApplicationCommandOptionType.Boolean,
+    },
+  ],
   async execute(interaction: ChatInputCommandInteraction) {
+    const sharePublicly = interaction.options.getBoolean("publicznie") === true;
+
     if (!config.POKEGLORY_DISCORD_BOT_SECRET) {
       await interaction.reply({
         content:
           "Integracja PokeGlory z Discordem nie jest jeszcze skonfigurowana.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
       const apiUrl = new URL(
@@ -148,9 +162,17 @@ const profilCommand = {
 
       await assignVerifiedRole(interaction);
 
-      await interaction.editReply({
-        embeds: [buildProfileEmbed(interaction, result)],
-      });
+      const profile = { embeds: [buildProfileEmbed(interaction, result)] };
+      await interaction.editReply(profile);
+
+      if (sharePublicly) {
+        // Resolve the deferred reply before sending a public follow-up.
+        await interaction.followUp({
+          ...profile,
+          allowedMentions: { parse: [] },
+        });
+        await interaction.deleteReply().catch(() => undefined);
+      }
     } catch (error) {
       console.error("Error fetching PokeGlory profile:", error);
       await interaction.editReply(

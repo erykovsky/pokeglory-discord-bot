@@ -4,7 +4,8 @@ import cardImages from "./card-images.json";
 import { drawDuelPokemon, normalizePokemonGuess } from "./rules";
 import type { ContestStore } from "./store";
 
-export const CARD_WINDOW_MS = 4 * 60 * 60_000;
+export const CARD_ROLL_WINDOW_MS = 4 * 60 * 60_000;
+const CARD_CLAIM_COOLDOWN_MS = 60 * 60_000;
 export const CARD_ROLL_LIMIT = 3;
 export const CARD_PRIORITY_MS = 10_000;
 export const CARD_DROP_MS = 90_000;
@@ -83,7 +84,7 @@ function collector(state: CollectionState, playerId: string) {
 }
 
 function recentRolls(player: Collector | undefined, now: number) {
-  return (player?.rolls ?? []).filter((time) => time + CARD_WINDOW_MS > now);
+  return (player?.rolls ?? []).filter((time) => time + CARD_ROLL_WINDOW_MS > now);
 }
 
 export function getCollectionLimits(
@@ -96,11 +97,11 @@ export function getCollectionLimits(
   return {
     rollsLeft: Math.max(0, CARD_ROLL_LIMIT - rolls.length),
     nextRollAt:
-      rolls.length >= CARD_ROLL_LIMIT ? rolls[0] + CARD_WINDOW_MS : null,
+      rolls.length >= CARD_ROLL_LIMIT ? rolls[0] + CARD_ROLL_WINDOW_MS : null,
     nextClaimAt:
       player?.lastClaimAt !== undefined &&
-      player.lastClaimAt + CARD_WINDOW_MS > now
-        ? player.lastClaimAt + CARD_WINDOW_MS
+      player.lastClaimAt + CARD_CLAIM_COOLDOWN_MS > now
+        ? player.lastClaimAt + CARD_CLAIM_COOLDOWN_MS
         : null,
   };
 }

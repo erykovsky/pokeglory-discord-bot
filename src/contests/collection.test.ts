@@ -8,9 +8,10 @@ import {
   cardByName,
   CARD_DROP_MS,
   CARD_PRIORITY_MS,
-  CARD_WINDOW_MS,
+  CARD_ROLL_WINDOW_MS,
   claimCard,
   findCard,
+  getCollectionLimits,
   proposeCardTrade,
   rollCard,
 } from "./collection";
@@ -36,7 +37,7 @@ test("the 224 cards reuse valid PokeGlory image paths", () => {
   assert.equal(findCard("Crystal onix")?.rarity, "Epic");
 });
 
-test("public rolls enforce first refusal, expiry and persistent 4h limits", () =>
+test("card limits persist after restart and reset independently", () =>
   withStore((store, path) => {
     const now = 1_000_000;
     for (const id of ["1", "2", "3"])
@@ -61,8 +62,30 @@ test("public rolls enforce first refusal, expiry and persistent 4h limits", () =
       "claimed"
     );
     const restarted = new ContestStore(path);
+    const nextClaimAt = now + CARD_PRIORITY_MS + 60 * 60_000;
+    assert.deepEqual(
+      claimCard(restarted, "2", "b", now + CARD_PRIORITY_MS),
+      { status: "limit", availableAt: nextClaimAt }
+    );
     assert.equal(
-      claimCard(restarted, "2", "b", now + CARD_PRIORITY_MS).status,
+      getCollectionLimits(restarted, "b", nextClaimAt - 1).nextClaimAt,
+      nextClaimAt
+    );
+    assert.equal(
+      rollCard(restarted, "fresh", "room", "b", nextClaimAt - 1, () => 0)
+        .status,
+      "rolled"
+    );
+    assert.equal(
+      claimCard(restarted, "fresh", "b", nextClaimAt - 1).status,
+      "limit"
+    );
+    assert.equal(
+      claimCard(restarted, "fresh", "b", nextClaimAt).status,
+      "caught"
+    );
+    assert.equal(
+      rollCard(restarted, "4", "room", "a", nextClaimAt, () => 0).status,
       "limit"
     );
     assert.equal(
@@ -70,11 +93,11 @@ test("public rolls enforce first refusal, expiry and persistent 4h limits", () =
       "closed"
     );
     assert.equal(
-      rollCard(restarted, "4", "room", "a", now + CARD_WINDOW_MS, () => 0)
+      rollCard(restarted, "4", "room", "a", now + CARD_ROLL_WINDOW_MS, () => 0)
         .status,
       "rolled"
     );
-    assert.equal(restarted.read().collection?.players.b.cards.Bulbasaur, 1);
+    assert.equal(restarted.read().collection?.players.b.cards.Bulbasaur, 2);
   }));
 
 test("only the named trade partner can atomically swap a pair of cards once", () =>

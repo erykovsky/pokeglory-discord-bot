@@ -75,10 +75,12 @@ Godzinna przerwa po walce i bilans są zachowane. Bot usuwa przyciski starych
 wyzwań z ostatnich 100 wiadomości kanału oraz po kliknięciu w starszy przycisk.
 
 Na `#kolekcja` polecenie `/losuj` wyświetla jedną z 224 kart. Każdy gracz ma
-trzy losowania w ostatnich czterech godzinach i jedno złapanie co cztery godziny.
+trzy losowania w ostatnich czterech godzinach i jedno złapanie na godzinę.
 Autor ma 10 sekund pierwszeństwa, a karta jest dostępna przez 90 sekund.
 Grafiki pochodzą z istniejących zasobów Pokémonów PokeGlory.
-`/kolekcja` pokazuje zbiór i limity, a opcja `pokemon` otwiera podgląd karty.
+`/kolekcja` pokazuje własny zbiór, liczby egzemplarzy i limity.
+Opcja `pokemon` otwiera podgląd karty. Ustaw `publicznie: Tak`, aby pokazać
+własną kolekcję lub kartę na kanale.
 `/zyczenia` zarządza listą życzeń,
 a `/wymiana` proponuje wymianę jednej karty za jedną.
 Wymiana trwa 10 minut i wymaga potwierdzenia tylko przez zaproszoną osobę.

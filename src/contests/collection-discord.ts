@@ -44,7 +44,7 @@ export const collectionCommands: ChatInputApplicationCommandData[] = [
   {
     ...guild,
     name: "kolekcja",
-    description: "Pokaż karty i limity kolekcji.",
+    description: "Sprawdź swoją kolekcję lub pokaż ją innym.",
     options: [
       {
         name: "gracz",
@@ -62,6 +62,11 @@ export const collectionCommands: ChatInputApplicationCommandData[] = [
         description: "Pokaż grafikę konkretnej karty z kolekcji.",
         type: Option.String,
         maxLength: 80,
+      },
+      {
+        name: "publicznie",
+        description: "Pokaż swoją kolekcję wszystkim na tym kanale.",
+        type: Option.Boolean,
       },
     ],
   },
@@ -268,6 +273,14 @@ export function createCollectionHandlers(
       }
       case "kolekcja": {
         const user = interaction.options.getUser("gracz") ?? interaction.user;
+        const isOwnCollection = user.id === me;
+        const sharePublicly =
+          interaction.options.getBoolean("publicznie") === true;
+        if (sharePublicly && !isOwnCollection) {
+          await reply("Publicznie możesz pokazać tylko własną kolekcję.");
+          break;
+        }
+        const flags = sharePublicly ? undefined : MessageFlags.Ephemeral;
         const inventory =
           store.read().collection?.players[user.id]?.cards ?? {};
         const name = interaction.options.getString("pokemon");
@@ -284,7 +297,7 @@ export function createCollectionHandlers(
                 `**${card.rarity}** · ${quantity} szt. w kolekcji gracza ${user.displayName}`
               ),
             ],
-            flags: MessageFlags.Ephemeral,
+            flags,
           });
           break;
         }
@@ -296,15 +309,19 @@ export function createCollectionHandlers(
           total,
           interaction.options.getInteger("strona") ?? 1
         );
-        const lines = cards
-          .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-          .map(
-            ([name, count]) =>
-              `**${name}** · ${cardByName.get(name)?.rarity ?? "Karta"}${
-                count > 1 ? ` ×${count}` : ""
-              }`
-          );
-        if (user.id === me) {
+        const cardCount = cards.reduce((sum, [, count]) => sum + count, 0);
+        const lines = [
+          `**Karty łącznie** ${cardCount} · **Różne karty** ${cards.length}/${cardByName.size}`,
+          "",
+          ...cards
+            .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+            .map(
+              ([name, count]) =>
+                `**${name}** ×${count} · ${cardByName.get(name)?.rarity ?? "Karta"}`
+            ),
+        ];
+        if (cards.length === 0) lines.push("Kolekcja jest pusta.");
+        if (isOwnCollection && !sharePublicly) {
           const { rollsLeft, nextRollAt, nextClaimAt } = getCollectionLimits(
             store,
             me
@@ -319,18 +336,21 @@ export function createCollectionHandlers(
               : "Możesz złapać jedną kartę."
           );
         }
-        if (cards.length === 0) lines.unshift("Kolekcja jest pusta.");
         await interaction.reply({
           embeds: [
             new EmbedBuilder()
               .setColor(CARD_COLOR)
-              .setTitle(`Kolekcja gracza ${user.displayName}`)
+              .setTitle(
+                isOwnCollection && !sharePublicly
+                  ? "Twoja kolekcja"
+                  : `Kolekcja gracza ${user.displayName}`
+              )
               .setDescription(lines.join("\n"))
               .setFooter({
-                text: `Strona ${page}/${total} · ${cards.length}/${cardByName.size} różnych kart`,
+                text: `Strona ${page}/${total}`,
               }),
           ],
-          flags: MessageFlags.Ephemeral,
+          flags,
         });
         break;
       }
