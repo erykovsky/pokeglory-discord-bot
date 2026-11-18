@@ -50,7 +50,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     linkCommand,
     profilCommand,
     ...(contestOptions ? contestCommands : [dailyCommand]),
-    losujCommand,
+    ...(contestOptions?.collectionChannel ? [] : [losujCommand]),
     muteCommand,
     unmuteCommand,
     clearCommand,
@@ -88,7 +88,7 @@ client.on("interactionCreate", async (interaction: Interaction) => {
     await profilCommand.execute(interaction);
   } else if (commandName === "daily" && !contestOptions) {
     await dailyCommand.execute(interaction);
-  } else if (commandName === "losuj") {
+  } else if (commandName === "losuj" && !contestOptions?.collectionChannel) {
     await losujCommand.execute(interaction);
   } else if (commandName === "mute") {
     await muteCommand.execute(interaction);

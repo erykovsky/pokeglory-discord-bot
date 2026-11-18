@@ -11,16 +11,24 @@ import {
   EmbedBuilder,
   Events,
   type GuildMember,
+  type Guild,
+  type GuildTextBasedChannel,
   InteractionContextType,
   type Message,
   MessageFlags,
   PermissionFlagsBits,
 } from "discord.js";
 import { config } from "../config";
+import { getOwnedCards } from "./collection";
+import {
+  collectionCommands,
+  createCollectionHandlers,
+  getCardImageUrl,
+} from "./collection-discord";
 import {
   CONTEST_RULES,
   type ContestKind,
-  type ContestPlanKey,
+  type ScheduledContest,
   type DuelMatch,
   type DuelPokemon,
   DUEL_XP,
@@ -28,9 +36,9 @@ import {
   getContestEligibility,
   getContestLevel,
   getContestWeek,
-  getDuelScheduleWindow,
+  DAILY_DRAW_START_MINUTE,
+  PLAYER_DUEL_COOLDOWN,
   getScheduleSlot,
-  getWeeklyXp,
   GUESS_COOLDOWN,
   MAX_DUEL_WIN_CHANCE,
   normalizePokemonGuess,
@@ -40,10 +48,13 @@ import {
   SCHEDULED_CONTESTS,
 } from "./rules";
 import {
-  acceptDuelChallenge,
   type Contest,
   ContestStore,
-  openDuelChallenge,
+  getDuelPool,
+  playPlayerDuel,
+  redrawUnlinkedWinner,
+  setContestParticipation,
+  settleAutomaticDraw,
   settleContest,
   type Reward,
 } from "./store";
@@ -60,6 +71,7 @@ function readOptions() {
   const parsed = JSON.parse(process.env.POKEGLORY_CONTESTS) as {
     channels?: Partial<Record<ContestKind, string>>;
     duelChannel?: string;
+    collectionChannel?: string;
     levelRoles?: Record<string, string>;
     automatic?: boolean;
   };
@@ -69,8 +81,12 @@ function readOptions() {
     !config.POKEGLORY_GUILD_ID ||
     !config.POKEGLORY_DISCORD_BOT_SECRET ||
     !parsed.channels ||
-    !Object.keys(parsed.channels).length ||
+    (!Object.keys(parsed.channels).length &&
+      !parsed.duelChannel &&
+      !parsed.collectionChannel) ||
     (parsed.duelChannel !== undefined && !isId(parsed.duelChannel)) ||
+    (parsed.collectionChannel !== undefined &&
+      !isId(parsed.collectionChannel)) ||
     !Object.entries(parsed.channels).every(
       ([kind, id]) => kinds.includes(kind as ContestKind) && isId(id)
     ) ||
@@ -88,13 +104,11 @@ function readOptions() {
   ) {
     throw new Error("Zgadywanie liczby i Pokémona wymagają osobnych kanałów.");
   }
-  if (parsed.channels.daily && !parsed.channels.games) {
-    throw new Error("Dzienne losowanie wymaga kanału pojedynków.");
-  }
   return {
     guildId: config.POKEGLORY_GUILD_ID,
     channels: parsed.channels,
     duelChannel: parsed.duelChannel,
+    collectionChannel: parsed.collectionChannel,
     levelRoles: Object.entries(parsed.levelRoles ?? {}).map(([level, id]) => ({
       level: Number(level),
       id,
@@ -110,54 +124,76 @@ export const contestOptions = config.POKEGLORY_LOCAL_IDEAS_ONLY
 export const contestCommands: ChatInputApplicationCommandData[] = [
   {
     name: "aktywnosc",
-    description: "Pokaż poziom i XP zdobyte na Discordzie.",
+    description: "Pokaż wyniki pojedynków i udział w losowaniach.",
   },
+  ...(contestOptions?.collectionChannel ? collectionCommands : []),
+  ...(contestOptions?.duelChannel || contestOptions?.channels.daily
+    ? [
+        {
+          name: "dolacz",
+          description: "Zapisz się do pojedynków i codziennego losowania.",
+          contexts: [InteractionContextType.Guild],
+        },
+        {
+          name: "opusc",
+          description: "Wypisz się z pojedynków i codziennego losowania.",
+          contexts: [InteractionContextType.Guild],
+        },
+      ]
+    : []),
   ...(contestOptions?.duelChannel
     ? [
         {
           name: "pojedynek",
-          description:
-            "Rzuć wyzwanie innemu graczowi. Za pojedynek oboje dostaniecie 10 XP.",
+          description: "Rozegraj pojedynek kartami z własnej kolekcji.",
           contexts: [InteractionContextType.Guild],
           options: [
             {
               name: "gracz",
-              description: "Opcjonalnie wybierz, kogo chcesz wyzwać.",
+              description:
+                "Wpisz nick i wybierz gracza albo zostaw puste, by losować.",
               type: ApplicationCommandOptionType.User as const,
             },
           ],
         },
       ]
     : []),
-  {
-    name: "konkurs",
-    description: "Rozpocznij konkurs na wyznaczonym kanale.",
-    defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
-    options: [
-      {
-        name: "rodzaj",
-        description: "Wybierz konkurs.",
-        required: true,
-        type: ApplicationCommandOptionType.String,
-        choices: kinds
-          .filter((kind) => contestOptions?.channels[kind])
-          .map((kind) => ({ name: CONTEST_RULES[kind].title, value: kind })),
-      },
-      ...(contestOptions?.channels.numbers
-        ? [
+  ...(Object.keys(contestOptions?.channels ?? {}).length
+    ? ([
+        {
+          name: "konkurs",
+          description: "Rozpocznij konkurs na wyznaczonym kanale.",
+          defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
+          options: [
             {
-              name: "zakres",
-              description: "Górna granica w konkursie Zgadnij liczbę.",
-              type: ApplicationCommandOptionType.Integer as const,
-              choices: [1000, 2000].map((value) => ({
-                name: `1–${value}`,
-                value,
-              })),
+              name: "rodzaj",
+              description: "Wybierz konkurs.",
+              required: true,
+              type: ApplicationCommandOptionType.String,
+              choices: kinds
+                .filter((kind) => contestOptions?.channels[kind])
+                .map((kind) => ({
+                  name: CONTEST_RULES[kind].title,
+                  value: kind,
+                })),
             },
-          ]
-        : []),
-    ],
-  },
+            ...(contestOptions?.channels.numbers
+              ? [
+                  {
+                    name: "zakres",
+                    description: "Górna granica w konkursie Zgadnij liczbę.",
+                    type: ApplicationCommandOptionType.Integer as const,
+                    choices: [1000, 2000].map((value) => ({
+                      name: `1–${value}`,
+                      value,
+                    })),
+                  },
+                ]
+              : []),
+          ],
+        },
+      ] satisfies ChatInputApplicationCommandData[])
+    : []),
 ];
 
 function isVerified(member: GuildMember | null) {
@@ -170,31 +206,78 @@ function isVerified(member: GuildMember | null) {
       );
 }
 
-type DuelChallengeFailure =
-  | Exclude<ReturnType<typeof openDuelChallenge>, { status: "created" }>
-  | Exclude<ReturnType<typeof acceptDuelChallenge>, { status: "played" }>;
+function firstCardHint(channelId?: string) {
+  return channelId
+    ? `Najpierw złap kartę poleceniem /losuj na <#${channelId}>.`
+    : "Pojedynki wymagają karty. Kanał kolekcji nie jest jeszcze podpięty.";
+}
 
-function describeDuelChallengeFailure(
-  failure: DuelChallengeFailure,
-  playerId: string
+function describeDuelFailure(
+  failure: Exclude<ReturnType<typeof playPlayerDuel>, { status: "played" }>,
+  playerId: string,
+  collectionChannel?: string
 ) {
-  switch (failure.status) {
-    case "closed":
-      return "Wyzwanie wygasło lub pojedynek został już rozegrany.";
-    case "self":
-      return "Do pojedynku potrzebujesz drugiego gracza.";
-    case "reserved":
-      return "To wyzwanie jest skierowane do wskazanego gracza.";
-    case "pending":
-      return `Masz już otwarte wyzwanie. Zapisy zamkną się <t:${Math.ceil(
-        failure.expiresAt / 1000
-      )}:R>.`;
-    case "cooldown":
-      return failure.playerId === playerId
-        ? `Następny pojedynek możesz rozegrać <t:${Math.ceil(
-            failure.availableAt / 1000
-          )}:R>.`
-        : "Przeciwnik jest jeszcze w godzinnej przerwie po poprzednim pojedynku.";
+  if (failure.status === "self") return "Wybierz innego gracza.";
+  if (failure.status === "not_joined")
+    return failure.playerId === playerId
+      ? "Wpisz /dolacz, żeby wejść do puli pojedynków."
+      : "Ten gracz nie jest w puli pojedynków.";
+  if (failure.status === "no_cards")
+    return failure.playerId === playerId
+      ? firstCardHint(collectionChannel)
+      : "Ten gracz nie ma jeszcze żadnej karty.";
+  return failure.playerId === playerId
+    ? `Następny pojedynek możesz rozegrać <t:${Math.ceil(
+        failure.availableAt / 1000
+      )}:R>.`
+    : "Ten gracz jest jeszcze w przerwie po poprzednim pojedynku.";
+}
+
+async function findRandomOpponent(guild: Guild, candidates: string[]) {
+  while (candidates.length) {
+    const [id] = candidates.splice(randomInt(candidates.length), 1);
+    const member =
+      guild.members.cache.get(id) ??
+      (await guild.members.fetch(id).catch(() => null));
+    if (isVerified(member)) return member;
+  }
+  return null;
+}
+
+async function getVerifiedParticipants(guild: Guild, players: string[]) {
+  const verified: string[] = [];
+  for (let from = 0; from < players.length; from += 100) {
+    const members = await guild.members.fetch({
+      user: players.slice(from, from + 100),
+      time: 15_000,
+    });
+    for (const member of members.values()) {
+      if (isVerified(member)) verified.push(member.id);
+    }
+  }
+  return verified;
+}
+
+async function clearLegacyChallengeButtons(
+  channel: GuildTextBasedChannel,
+  botId: string
+) {
+  const messages = await channel.messages.fetch({ limit: 100 });
+  for (const message of messages.values()) {
+    if (
+      message.author.id !== botId ||
+      !message.components.some(
+        (row) =>
+          "components" in row &&
+          row.components.some(
+            (part) =>
+              "customId" in part &&
+              part.customId?.startsWith(DUEL_CHALLENGE_PREFIX)
+          )
+      )
+    )
+      continue;
+    await message.edit({ components: [] }).catch(() => undefined);
   }
 }
 
@@ -229,6 +312,10 @@ async function contestApi<T>(payload: object): Promise<T> {
 function contestPrize(event: Contest) {
   if (event.kind === "pokemon") return `${POKEMON_XP} XP na Discordzie`;
   const reward = event.reward;
+  if (reward?.currency === "bundle")
+    return `**${reward.name}**\n${reward.items
+      .map(({ quantity, name }) => `• ${quantity} × ${name}`)
+      .join("\n")}`;
   return reward
     ? `${formatNumber.format(reward.amount)} ${
         reward.currency === "yen" ? "¥" : "PZ"
@@ -237,7 +324,9 @@ function contestPrize(event: Contest) {
 }
 
 function hasSignups(event: Contest) {
-  return event.kind !== "numbers" && event.kind !== "pokemon";
+  return (
+    !event.automaticDraw && event.kind !== "numbers" && event.kind !== "pokemon"
+  );
 }
 
 function formatDuelPokemon(pokemon: DuelPokemon | string) {
@@ -265,7 +354,7 @@ function describeDuelRounds(event: Contest, mentions: boolean) {
   ]);
 }
 
-function buildCard(event: Contest, now: number, duelChannel?: string) {
+function buildCard(event: Contest, now: number) {
   const rule = CONTEST_RULES[event.kind];
   const closed = event.phase === "closed";
   const files: AttachmentBuilder[] = [];
@@ -280,9 +369,13 @@ function buildCard(event: Contest, now: number, duelChannel?: string) {
       event.winner
         ? `**Wygrywa** <@${event.winner}>`
         : event.kind === "games"
-        ? "Do turnieju potrzeba co najmniej dwóch uczestników."
+        ? "Do turnieju potrzeba co najmniej dwóch uczestników z kartami."
         : "Konkurs zakończony bez zwycięzcy."
     );
+    if (event.automaticDraw)
+      description.push(
+        `**Uczestnicy** ${event.entries.length} · wpisz /dolacz, aby brać udział codziennie, lub /opusc, aby się wypisać.`
+      );
     if (event.winner && event.reward && !event.paid)
       description.push("Wypłata nagrody w toku.");
     if (event.number)
@@ -314,15 +407,13 @@ function buildCard(event: Contest, now: number, duelChannel?: string) {
     if (hasSignups(event)) {
       if (event.kind === "games") {
         description.push(
-          "RotomBot przydzieli Ci losowego Pokémona na cały turniej i dobierze pary 1 na 1.",
+          "RotomBot wybierze jedną kartę z Twojej kolekcji na cały turniej i dobierze pary 1 na 1.",
           `Rzadszy Pokémon ma większą szansę wygrać, maksymalnie ${MAX_DUEL_WIN_CHANCE}%. Zwycięzca przechodzi dalej.`,
-          "Jeden rozegrany pojedynek odblokowuje dzienne losowania do końca tygodnia."
+          "Wyniki walk znajdziesz w komendzie /aktywnosc."
         );
       } else if (event.kind === "daily") {
         description.push(
-          duelChannel
-            ? `Jeden pojedynek w tym tygodniu daje dostęp do losowania. Wpisz **/pojedynek** na <#${duelChannel}>, a potem wróć tutaj i zapisz się.`
-            : `Jeden pojedynek w tym tygodniu daje dostęp do losowania. Aby zawalczyć, kliknij **${DUEL_SIGNUP_LABEL}** pod ogłoszeniem **Turniej pojedynków**.`
+          "W tym losowaniu obowiązuje udział po rozegraniu pojedynku w bieżącym tygodniu."
         );
       } else {
         description.push(`**Wymagany poziom** ${rule.level}`);
@@ -411,6 +502,15 @@ export function startContestSystem(
     process.env.POKEGLORY_CONTEST_STATE_PATH || "data/contests.json"
   );
   const processing = new Set<string>();
+  const collection = options.collectionChannel
+    ? createCollectionHandlers(
+        client,
+        store,
+        options.guildId,
+        options.collectionChannel,
+        isVerified
+      )
+    : null;
 
   const getActivity = (id: string) =>
     store.read().activity[id] ?? EMPTY_ACTIVITY;
@@ -439,15 +539,17 @@ export function startContestSystem(
     return channel;
   };
 
+  if (options.duelChannel) {
+    void getChannel(options.duelChannel)
+      .then((channel) => clearLegacyChallengeButtons(channel, client.user.id))
+      .catch((error) => console.error("[Pojedynki: stare przyciski]", error));
+  }
+
   async function refresh(event: Contest) {
     if (!event.messageId) return;
     const channel = await getChannel(event.channelId);
     const current = store.read().contests[event.id];
-    const { files, ...card } = buildCard(
-      current,
-      Date.now(),
-      options.duelChannel
-    );
+    const { files, ...card } = buildCard(current, Date.now());
     await channel.messages.edit(
       event.messageId,
       files.length ? { ...card, attachments: [], files } : card
@@ -459,6 +561,23 @@ export function startContestSystem(
     processing.add(id);
     try {
       let event = store.read().contests[id];
+      if (event.phase === "draft" && event.automaticDraw) {
+        if (!event.reward) {
+          const reward = await contestApi<Reward>({
+            action: "reserve",
+            contestId: id,
+            kind: "daily",
+            supportsBundles: true,
+          });
+          event = store.update((state) =>
+            Object.assign(state.contests[id], { reward })
+          );
+        }
+        const channel = await getChannel(event.channelId);
+        const players = Object.keys(store.read().enrolledPlayers ?? {});
+        const eligible = await getVerifiedParticipants(channel.guild, players);
+        event = settleAutomaticDraw(store, id, eligible);
+      }
       if (event.phase === "draft") {
         if (event.kind === "pokemon" && !event.pokemon) {
           const pokemon = await contestApi<NonNullable<Contest["pokemon"]>>({
@@ -492,11 +611,7 @@ export function startContestSystem(
           ? { ...event.number, hintsAt: now + NUMBER_HINT_AFTER }
           : undefined;
         const message = await channel.send({
-          ...buildCard(
-            { ...event, closesAt, number },
-            now,
-            options.duelChannel
-          ),
+          ...buildCard({ ...event, closesAt, number }, now),
           nonce: id.replace(/-/g, "").slice(0, 24),
           enforceNonce: true,
           files: file ? [file] : [],
@@ -514,22 +629,45 @@ export function startContestSystem(
         if (event.phase === "open" && event.closesAt <= now)
           event = settleContest(store, id, undefined, now);
         if (event.phase !== "closed" || event.published) return;
-        if (event.reward && event.winner && !event.paid) {
+        while (event.reward && event.winner && !event.paid) {
+          const winner = event.winner;
           try {
             await contestApi({
               action: "award",
               contestId: id,
-              discordId: event.winner,
+              discordId: winner,
             });
             event = store.update((state) =>
               Object.assign(state.contests[id], { paid: true })
             );
           } catch (error) {
-            await refresh(event).catch(() => undefined);
-            throw error;
+            if (
+              event.automaticDraw &&
+              error instanceof ContestApiError &&
+              error.code === "winner_not_linked"
+            ) {
+              event = redrawUnlinkedWinner(store, id, winner);
+            } else {
+              await refresh(event).catch(() => undefined);
+              throw error;
+            }
           }
         }
-        await refresh(event);
+        if (event.automaticDraw && !event.messageId) {
+          const channel = await getChannel(event.channelId);
+          const { files, ...card } = buildCard(event, now);
+          const message = await channel.send({
+            ...card,
+            files,
+            nonce: id.replace(/-/g, "").slice(0, 24),
+            enforceNonce: true,
+          });
+          event = store.update((state) =>
+            Object.assign(state.contests[id], { messageId: message.id })
+          );
+        } else {
+          await refresh(event);
+        }
         if (
           event.kind === "games" &&
           event.rounds?.length &&
@@ -560,32 +698,19 @@ export function startContestSystem(
     );
   }
 
-  function getDuelSignupInstructions(now = Date.now()) {
-    if (options.duelChannel)
-      return `Wpisz **/pojedynek** na <#${options.duelChannel}> albo podejmij czyjeś wyzwanie. Po akceptacji RotomBot rozegra walkę dwóch graczy i da każdemu **${DUEL_XP} XP**.`;
-
-    const channelId = options.channels.games;
-    if (!channelId) return null;
-
-    const tournament = findActive("games");
-    const signup =
-      tournament?.phase === "open" &&
-      tournament.closesAt > now &&
-      tournament.messageId
-        ? `Kliknij **${DUEL_SIGNUP_LABEL}** w [otwartym turnieju](https://discord.com/channels/${options.guildId}/${tournament.channelId}/${tournament.messageId}).`
-        : `Gdy pojawi się ogłoszenie **Turniej pojedynków** na <#${channelId}>, kliknij pod nim **${DUEL_SIGNUP_LABEL}**.`;
-    return `${signup} Gdy zapiszą się co najmniej dwie osoby, RotomBot sam rozegra pojedynki po zamknięciu zapisów.`;
-  }
-
   async function start(
     kind: ContestKind,
     max = 1000,
-    scheduled?: ContestPlanKey
+    scheduled?: ScheduledContest
   ) {
     const channelId = options.channels[kind];
     if (!channelId)
       throw new Error("Brak ustawionego kanału dla tego konkursu.");
     const existing = findActive(kind);
+    const slot = kind === "daily" ? getScheduleSlot("daily", Date.now()) : null;
+    const dailyPlan = store.read().plans.daily;
+    if (!existing && slot && dailyPlan?.key === slot.key && dailyPlan.started)
+      throw new Error("Dzisiejsze losowanie zostało już rozliczone.");
     if (existing?.phase === "open") throw new Error("Ten konkurs już trwa.");
     const event =
       existing ??
@@ -597,6 +722,7 @@ export function startContestSystem(
           phase: "draft",
           closesAt: 0,
           entries: [],
+          automaticDraw: kind === "daily" ? true : undefined,
         };
         if (kind === "numbers")
           draft.number = {
@@ -608,6 +734,12 @@ export function startContestSystem(
         state.contests[draft.id] = draft;
         const plan = scheduled ? state.plans[scheduled] : null;
         if (plan) plan.started = true;
+        if (slot)
+          state.plans.daily = {
+            key: slot.key,
+            minute: slot.minuteOfDay,
+            started: true,
+          };
         return draft;
       });
     if (processing.has(event.id))
@@ -672,201 +804,171 @@ export function startContestSystem(
   client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.guildId !== options.guildId) return;
     try {
+      if (interaction.inCachedGuild() && collection) {
+        if (
+          interaction.isChatInputCommand() &&
+          (await collection.command(interaction))
+        )
+          return;
+        if (interaction.isButton() && (await collection.button(interaction)))
+          return;
+      }
       if (
         interaction.isChatInputCommand() &&
         interaction.commandName === "aktywnosc"
       ) {
         const activity = getActivity(interaction.user.id);
-        const week = getContestWeek(Date.now());
-        const weeklyXp = getWeeklyXp(activity, week);
-        const playedDuel = activity.lastDuelWeek === week;
-        const duelStatus = playedDuel ? "rozegrany" : "do rozegrania";
-        const signupHelp = playedDuel ? null : getDuelSignupInstructions();
+        const enrolled = Boolean(
+          store.read().enrolledPlayers?.[interaction.user.id]
+        );
         await interaction.reply({
-          content: `**Poziom Discorda** ${getContestLevel(
-            activity.totalXp
-          )}\n**Łączny XP** ${formatNumber.format(
-            activity.totalXp
-          )}\n**Poziom tygodniowy** ${getContestLevel(
-            weeklyXp
-          )}\n**Tygodniowy XP** ${formatNumber.format(
-            weeklyXp
-          )}\n**Wygrane pojedynki** ${formatNumber.format(
-            activity.duelWins ?? 0
-          )} · **Przegrane** ${formatNumber.format(
-            activity.duelLosses ?? 0
-          )}\n**Pojedynek w tym tygodniu** ${duelStatus}${
-            signupHelp ? `\n\n${signupHelp}` : ""
-          }`,
+          content: [
+            `**Wygrane** ${formatNumber.format(
+              activity.duelWins ?? 0
+            )} · **Przegrane** ${formatNumber.format(
+              activity.duelLosses ?? 0
+            )}`,
+            `**Pula pojedynków i losowań** ${
+              enrolled ? "bierzesz udział" : "wpisz /dolacz, aby dołączyć"
+            }`,
+          ].join("\n"),
+          flags: MessageFlags.Ephemeral,
+        });
+      } else if (
+        interaction.isChatInputCommand() &&
+        ["dolacz", "opusc"].includes(interaction.commandName)
+      ) {
+        const joining = interaction.commandName === "dolacz";
+        if (
+          joining &&
+          (!interaction.inCachedGuild() || !isVerified(interaction.member))
+        ) {
+          await interaction.reply({
+            content: "Połącz konto PokeGlory komendą /link.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+        setContestParticipation(store, interaction.user.id, joining);
+        await interaction.reply({
+          content: joining
+            ? "Jesteś w puli pojedynków i codziennego losowania. Udział możesz wyłączyć komendą /opusc."
+            : "Wypisano Cię z puli pojedynków i codziennego losowania.",
           flags: MessageFlags.Ephemeral,
         });
       } else if (
         interaction.isChatInputCommand() &&
         interaction.commandName === "pojedynek"
       ) {
-        const duelChannel = options.duelChannel;
-        if (!duelChannel) return;
-        if (!interaction.inCachedGuild() || !isVerified(interaction.member)) {
-          await interaction.reply({
-            content: "Połącz konto PokeGlory komendą /link.",
-            flags: MessageFlags.Ephemeral,
-          });
-          return;
-        }
-        if (interaction.channelId !== duelChannel) {
-          await interaction.reply({
-            content: `Wpisz **/pojedynek** na <#${duelChannel}>.`,
-            flags: MessageFlags.Ephemeral,
-          });
-          return;
-        }
-
-        const target = interaction.options.getUser("gracz");
-        const playerId = interaction.user.id;
-        if (
-          target &&
-          (target.bot || !isVerified(interaction.options.getMember("gracz")))
-        ) {
-          await interaction.reply({
-            content: "Wybierz gracza z kontem połączonym z PokeGlory.",
-            flags: MessageFlags.Ephemeral,
-          });
-          return;
-        }
-        const result = openDuelChallenge(
-          store,
-          interaction.id,
-          playerId,
-          target?.id
-        );
-        if (result.status !== "created") {
-          await interaction.reply({
-            content: describeDuelChallengeFailure(result, playerId),
-            flags: MessageFlags.Ephemeral,
-          });
-          return;
-        }
-
-        const card = new EmbedBuilder()
-          .setTitle("Wyzwanie na pojedynek")
-          .setColor(0x36b28c)
-          .setDescription(
-            [
-              target
-                ? `<@${playerId}> wyzywa <@${target.id}>.`
-                : `<@${playerId}> szuka przeciwnika.`,
-              "Po zaakceptowaniu wyzwania obaj gracze dostaną losowego Pokémona, a RotomBot rozegra walkę.",
-              `**${DUEL_XP} XP** dla każdego gracza. Zapisy do <t:${Math.ceil(
-                result.challenge.expiresAt / 1000
-              )}:t>.`,
-            ].join("\n")
-          );
-        await interaction.reply({
-          content: target ? `<@${target.id}>` : undefined,
-          embeds: [card],
-          components: [
-            new ActionRowBuilder<ButtonBuilder>().addComponents(
-              new ButtonBuilder()
-                .setCustomId(`${DUEL_CHALLENGE_PREFIX}${interaction.id}`)
-                .setLabel("Podejmij wyzwanie")
-                .setStyle(ButtonStyle.Success)
-            ),
-          ],
-          allowedMentions: { parse: [], users: target ? [target.id] : [] },
-        });
-      } else if (
-        interaction.isButton() &&
-        interaction.customId.startsWith(DUEL_CHALLENGE_PREFIX)
-      ) {
+        const me = interaction.user.id;
+        const reply = (content: string) =>
+          interaction.deferred
+            ? interaction.editReply(content)
+            : interaction.reply({ content, flags: MessageFlags.Ephemeral });
         if (
           !options.duelChannel ||
           interaction.channelId !== options.duelChannel
-        )
+        ) {
+          if (options.duelChannel)
+            await reply(`Wpisz /pojedynek na <#${options.duelChannel}>.`);
           return;
+        }
         if (!interaction.inCachedGuild() || !isVerified(interaction.member)) {
-          await interaction.reply({
-            content: "Połącz konto PokeGlory komendą /link.",
-            flags: MessageFlags.Ephemeral,
-          });
+          await reply("Połącz konto PokeGlory komendą /link.");
           return;
         }
-        const id = interaction.customId.slice(DUEL_CHALLENGE_PREFIX.length);
-        const challenge = store.read().duelChallenges?.[id];
-        if (!challenge || challenge.expiresAt <= Date.now()) {
-          await interaction.reply({
-            content: describeDuelChallengeFailure(
-              { status: "closed" },
-              interaction.user.id
-            ),
-            flags: MessageFlags.Ephemeral,
-          });
+        if (!store.read().enrolledPlayers?.[me]) {
+          await reply("Najpierw wpisz /dolacz, żeby wejść do puli pojedynków.");
           return;
         }
-
-        await interaction.deferUpdate();
-        const challenger = await interaction.guild.members
-          .fetch(challenge.challengerId)
-          .catch(() => null);
-        if (!challenger || !isVerified(challenger)) {
-          await interaction.followUp({
-            content: "Wzywający musi mieć połączone konto PokeGlory.",
-            flags: MessageFlags.Ephemeral,
-          });
+        if (!getOwnedCards(store.read().collection, me).length) {
+          await reply(firstCardHint(options.collectionChannel));
           return;
         }
-        const now = Date.now();
-        const duel = acceptDuelChallenge(store, id, interaction.user.id, now);
+        const lastDuel = getActivity(me).lastPlayerDuelAt;
+        if (
+          lastDuel !== undefined &&
+          lastDuel + PLAYER_DUEL_COOLDOWN > Date.now()
+        ) {
+          await reply(
+            describeDuelFailure(
+              {
+                status: "cooldown",
+                playerId: me,
+                availableAt: lastDuel + PLAYER_DUEL_COOLDOWN,
+              },
+              me
+            )
+          );
+          return;
+        }
+        const target = interaction.options.getUser("gracz");
+        let opponent = target ? interaction.options.getMember("gracz") : null;
+        if (!target) {
+          const candidates = getDuelPool(store, me);
+          if (candidates.length) {
+            await interaction.deferReply();
+            opponent = await findRandomOpponent(interaction.guild, candidates);
+          }
+        }
+        if (!opponent || !isVerified(opponent)) {
+          await reply(
+            target
+              ? "Wybierz gracza z połączonym kontem."
+              : "Brak dostępnego przeciwnika z kartą w puli. Spróbuj później."
+          );
+          return;
+        }
+        const duel = playPlayerDuel(store, me, opponent.id);
         if (duel.status !== "played") {
-          await interaction.followUp({
-            content: describeDuelChallengeFailure(duel, interaction.user.id),
-            flags: MessageFlags.Ephemeral,
-          });
+          await reply(describeDuelFailure(duel, me, options.collectionChannel));
           return;
         }
-
         const embed = new EmbedBuilder()
           .setTitle("Wynik pojedynku")
           .setColor(0x36b28c)
           .setDescription(
-            [
-              `**<@${duel.challengerId}>** · ${formatDuelPokemon(
-                duel.challengerPokemon
-              )}`,
-              `**<@${duel.opponentId}>** · ${formatDuelPokemon(
-                duel.opponentPokemon
-              )}`,
-              `Szanse ${duel.challengerChance}% do ${
-                100 - duel.challengerChance
-              }%`,
-              "",
-              `**Wygrywa <@${duel.winnerId}>.**`,
-              `Obaj gracze dostają po **${DUEL_XP} XP** i dostęp do dziennych losowań do końca tygodnia.`,
-            ].join("\n")
+            `**Wygrywa <@${duel.winnerId}>.**\nSzanse w kolejności graczy: ${
+              duel.challengerChance
+            }% do ${100 - duel.challengerChance}%.`
           );
-        const daily = findActive("daily");
-        const components =
-          daily?.phase === "open" && daily.messageId && daily.closesAt > now
-            ? [
-                new ActionRowBuilder<ButtonBuilder>().addComponents(
-                  new ButtonBuilder()
-                    .setStyle(ButtonStyle.Link)
-                    .setLabel("Przejdź do losowania")
-                    .setURL(
-                      `https://discord.com/channels/${options.guildId}/${daily.channelId}/${daily.messageId}`
-                    )
-                ),
-              ]
-            : [];
-        await interaction.editReply({
-          content: null,
-          embeds: [embed],
-          components,
-          allowedMentions: { parse: [] },
+        const fighterCards = (
+          [
+            [duel.challengerId, duel.challengerPokemon],
+            [duel.opponentId, duel.opponentPokemon],
+          ] as const
+        ).map(([id, pokemon]) => {
+          const fighter = new EmbedBuilder()
+            .setColor(0x36b28c)
+            .setTitle(pokemon.name)
+            .setDescription(`<@${id}> · ${pokemon.rarity}`);
+          const imageUrl = getCardImageUrl(pokemon.name);
+          if (imageUrl) fighter.setThumbnail(imageUrl);
+          return fighter;
         });
-        for (const member of [challenger, interaction.member])
+        const result = {
+          embeds: [embed, ...fighterCards],
+          allowedMentions: { parse: [] as never[] },
+        };
+        if (interaction.deferred) await interaction.editReply(result);
+        else await interaction.reply(result);
+        for (const member of [interaction.member, opponent])
           void syncLevelRoles(member).catch((error) =>
             console.error("[Konkursy: role]", error)
           );
+      } else if (
+        interaction.isButton() &&
+        interaction.customId.startsWith(DUEL_CHALLENGE_PREFIX)
+      ) {
+        await interaction.reply({
+          content:
+            "To wyzwanie jest zamknięte. Wpisz /dolacz, a potem użyj /pojedynek.",
+          flags: MessageFlags.Ephemeral,
+        });
+        if (interaction.message.author.id === client.user.id)
+          await interaction.message
+            .edit({ components: [] })
+            .catch(() => undefined);
       } else if (
         interaction.isChatInputCommand() &&
         interaction.commandName === "konkurs"
@@ -891,7 +993,9 @@ export function startContestSystem(
           interaction.options.getInteger("zakres") ?? 1000
         );
         await interaction.editReply(
-          `Konkurs otwarty na <#${event.channelId}>.`
+          kind === "daily"
+            ? `Losowanie rozliczone na <#${event.channelId}>.`
+            : `Konkurs otwarty na <#${event.channelId}>.`
         );
       } else if (
         interaction.isButton() &&
@@ -932,13 +1036,13 @@ export function startContestSystem(
           );
           if (!isVerified(member))
             reply = "Połącz konto PokeGlory komendą /link.";
-          else if (eligibility) {
-            const signupHelp =
-              event.kind === "daily" ? getDuelSignupInstructions() : null;
-            reply = signupHelp
-              ? `To są zapisy do losowania. ${eligibility}\n\n${signupHelp}`
-              : eligibility;
-          } else if (event.entries.includes(userId))
+          else if (
+            event.kind === "games" &&
+            !getOwnedCards(store.read().collection, userId).length
+          )
+            reply = firstCardHint(options.collectionChannel);
+          else if (eligibility) reply = eligibility;
+          else if (event.entries.includes(userId))
             reply = "Masz już zapis na ten konkurs.";
           else {
             store.update((state) => {
@@ -1022,67 +1126,38 @@ export function startContestSystem(
         });
       }
 
+      await collection?.expireMessages(now);
       if (options.automatic) {
         for (const kind of SCHEDULED_CONTESTS) {
           if (!options.channels[kind]) continue;
           const slot = getScheduleSlot(kind, now);
-          if (!slot) continue;
-          const duelWindow =
-            kind === "games"
-              ? getDuelScheduleWindow(slot.minuteOfDay)
-              : undefined;
-          if (
-            kind === "games"
-              ? !duelWindow
-              : slot.minuteOfDay < 14 * 60 ||
-                (slot.minuteOfDay >= 22 * 60 && kind !== "daily")
-          )
+          if (!slot || slot.minuteOfDay < 14 * 60) continue;
+          if (kind === "daily" && slot.minuteOfDay < DAILY_DRAW_START_MINUTE)
             continue;
+          if (kind !== "daily" && slot.minuteOfDay >= 22 * 60) continue;
 
-          const plans = store.read().plans;
-          const tournament = plans.games;
-          const daily = plans.daily;
-          if (kind === "games" && daily?.key === slot.key && daily.started)
-            continue;
-          if (
-            kind === "daily" &&
-            (tournament?.key !== slot.key ||
-              !tournament.started ||
-              findActive("games"))
-          )
-            continue;
-
-          const planKey = duelWindow?.key ?? kind;
-          const current = plans[planKey];
-          const minute =
-            kind === "daily" && tournament ? tournament.minute : undefined;
+          const current = store.read().plans[kind];
           const plan =
-            current?.key === slot.key &&
-            (current.started ||
-              !duelWindow ||
-              (current.minute >= duelWindow.firstMinute &&
-                current.minute <= duelWindow.lastMinute))
+            current?.key === slot.key
               ? current
               : store.update(
                   (state) =>
-                    (state.plans[planKey] = {
+                    (state.plans[kind] = {
                       key: slot.key,
                       minute:
-                        minute ??
-                        randomInt(
-                          duelWindow?.firstMinute ?? 14 * 60,
-                          (duelWindow?.lastMinute ?? 21 * 60) + 1
-                        ),
+                        kind === "daily"
+                          ? DAILY_DRAW_START_MINUTE
+                          : randomInt(14 * 60, 21 * 60 + 1),
                       started: false,
                     })
                 );
           if (
             plan.started ||
-            slot.minuteOfDay < (minute ?? plan.minute) ||
+            (kind !== "daily" && slot.minuteOfDay < plan.minute) ||
             findActive(kind)
           )
             continue;
-          await start(kind, 1000, planKey).catch((error) =>
+          await start(kind, 1000, kind).catch((error) =>
             console.error(`[Konkursy: harmonogram ${kind}]`, error)
           );
         }

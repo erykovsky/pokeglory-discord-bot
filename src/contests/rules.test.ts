@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { claimCard, rollCard } from "./collection";
 import { duelPokemonTiers } from "./duel-pokemon-pool";
 import {
   addContestXp,
@@ -12,7 +13,6 @@ import {
   getContestEligibility,
   getContestLevel,
   getContestWeek,
-  getDuelScheduleWindow,
   getDuelWinChance,
   getScheduleSlot,
   getWeeklyXp,
@@ -21,11 +21,32 @@ import {
   PLAYER_DUEL_COOLDOWN,
 } from "./rules";
 import {
-  acceptDuelChallenge,
+  getDuelPool,
+  playPlayerDuel,
+  redrawUnlinkedWinner,
   ContestStore,
-  openDuelChallenge,
+  setContestParticipation,
+  settleAutomaticDraw,
   settleContest,
 } from "./store";
+
+function collectTestCard(
+  store: ContestStore,
+  playerId: string,
+  now: number,
+  roll: (max: number) => number
+) {
+  const id = `test-card-${playerId}`;
+  assert.equal(
+    rollCard(store, id, "test", playerId, now, roll).status,
+    "rolled"
+  );
+  const result = claimCard(store, id, playerId, now);
+  assert.equal(result.status, "caught");
+  if (result.status !== "caught")
+    throw new Error("Could not claim a fixture card.");
+  return result.drop.card;
+}
 
 test("a duel unlocks daily draws until Monday in Warsaw, independently of other XP", () => {
   const sunday = Date.parse("2026-11-15T22:59:59Z");
@@ -56,13 +77,16 @@ test("both sides receive 10 XP per matchup exactly once and each keeps their Pok
     const store = new ContestStore(file);
     const now = Date.parse("2026-11-16T16:00:00Z");
     const players = ["one", "two", "three"];
+    const cards = players.map((id, index) =>
+      collectTestCard(store, id, now, (max) => (max === 1000 ? 0 : index))
+    );
     store.update((state) => {
       state.contests.duels = {
         id: "duels",
         kind: "games",
         channelId: "test",
         phase: "open",
-        entries: players,
+        entries: [...players, "no-cards"],
         closesAt: now,
       };
       state.contests.noOpponent = {
@@ -81,7 +105,9 @@ test("both sides receive 10 XP per matchup exactly once and each keeps their Pok
       Object.keys(event.duelPokemon!).sort(),
       [...players].sort()
     );
-    for (const player of players) {
+    for (const [index, player] of players.entries()) {
+      const pokemon = event.duelPokemon?.[player];
+      assert.equal(typeof pokemon === "object" && pokemon.name, cards[index]);
       const fights = rounds.filter((duel) =>
         [duel.winner, duel.eliminated].includes(player)
       ).length;
@@ -103,6 +129,7 @@ test("both sides receive 10 XP per matchup exactly once and each keeps their Pok
     const empty = settleContest(store, "noOpponent", undefined, now);
     assert.equal(empty.winner, null);
     assert.equal(store.read().activity.alone, undefined);
+    assert.equal(store.read().activity["no-cards"], undefined);
     const restarted = new ContestStore(file);
     assert.deepEqual(settleContest(restarted, "duels", undefined, now), event);
     assert.deepEqual(restarted.read().activity, store.read().activity);
@@ -111,38 +138,29 @@ test("both sides receive 10 XP per matchup exactly once and each keeps their Pok
   }
 });
 
-test("a player challenge awards both players once and preserves cooldown across restart", () => {
+test("an instant duel requires both players to opt in and persists the cooldown", () => {
   const folder = mkdtempSync(join(tmpdir(), "pg-player-duel-"));
   try {
     const path = join(folder, "contests.json");
     const store = new ContestStore(path);
     const now = Date.parse("2026-11-15T22:40:00Z");
-    assert.equal(
-      openDuelChallenge(store, "self", "one", "one", now).status,
-      "self"
-    );
-    assert.equal(
-      openDuelChallenge(store, "invite", "one", "two", now).status,
-      "created"
-    );
-    assert.equal(
-      openDuelChallenge(store, "duplicate", "one", "three", now).status,
-      "pending"
-    );
-    assert.deepEqual(store.read().activity, {});
-    assert.equal(
-      acceptDuelChallenge(store, "invite", "one", now).status,
-      "self"
-    );
-    assert.equal(
-      acceptDuelChallenge(store, "invite", "three", now).status,
-      "reserved"
-    );
+    setContestParticipation(store, "one", true);
+    assert.equal(playPlayerDuel(store, "one", "one", now).status, "self");
+    assert.equal(playPlayerDuel(store, "one", "two", now).status, "not_joined");
+    setContestParticipation(store, "two", true);
+    const firstCard = collectTestCard(store, "one", now, () => 0);
+    assert.deepEqual(getDuelPool(store, "one", now), []);
+    assert.deepEqual(playPlayerDuel(store, "one", "two", now), {
+      status: "no_cards",
+      playerId: "two",
+    });
+    const secondCard = collectTestCard(store, "two", now, (max) => max - 1);
 
     const restarted = new ContestStore(path);
-    const match = acceptDuelChallenge(
+    assert.deepEqual(getDuelPool(restarted, "one", now), ["two"]);
+    const match = playPlayerDuel(
       restarted,
-      "invite",
+      "one",
       "two",
       now,
       (max) => max - 1
@@ -150,71 +168,76 @@ test("a player challenge awards both players once and preserves cooldown across 
     assert.equal(match.status, "played");
     if (match.status !== "played") return;
     assert.equal(match.winnerId, "two");
-    for (const player of ["one", "two"]) {
-      const activity = restarted.read().activity[player];
-      assert.equal(activity.totalXp, 10);
-      assert.equal(
-        getContestEligibility("daily", activity, getContestWeek(now)),
-        null
-      );
-    }
+    assert.equal(match.challengerPokemon.name, firstCard);
+    assert.equal(match.opponentPokemon.name, secondCard);
+    assert.equal(match.challengerChance, 25);
+    assert.equal(restarted.read().collection?.players.one.cards[firstCard], 1);
+    assert.equal(restarted.read().collection?.players.two.cards[secondCard], 1);
+
     const recovered = new ContestStore(path);
-    assert.equal(recovered.read().activity.one.duelWins, 0);
     assert.equal(recovered.read().activity.one.duelLosses, 1);
     assert.equal(recovered.read().activity.two.duelWins, 1);
-    assert.equal(recovered.read().activity.two.duelLosses, 0);
-    assert.equal(
-      acceptDuelChallenge(recovered, "invite", "two", now).status,
-      "closed"
-    );
+    assert.equal(recovered.read().activity.two.totalXp, 10);
     assert.deepEqual(
-      openDuelChallenge(
-        recovered,
-        "other",
-        "three",
-        "two",
-        now + PLAYER_DUEL_COOLDOWN - 1
-      ),
-      {
-        status: "cooldown",
-        playerId: "two",
-        availableAt: now + PLAYER_DUEL_COOLDOWN,
-      }
+      getDuelPool(recovered, "one", now + PLAYER_DUEL_COOLDOWN - 1),
+      []
     );
     assert.equal(
-      openDuelChallenge(recovered, "open", "three", undefined, now).status,
-      "created"
-    );
-    assert.equal(
-      acceptDuelChallenge(recovered, "open", "two", now).status,
+      playPlayerDuel(recovered, "one", "two", now).status,
       "cooldown"
     );
+    setContestParticipation(recovered, "two", false);
     assert.equal(
-      acceptDuelChallenge(recovered, "open", "four", now, () => 0).status,
-      "played"
+      playPlayerDuel(recovered, "one", "two", now + PLAYER_DUEL_COOLDOWN)
+        .status,
+      "not_joined"
     );
+    assert.equal(recovered.read().activity.two.duelWins, 1);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
 
-    const next = now + PLAYER_DUEL_COOLDOWN;
-    assert.equal(
-      openDuelChallenge(recovered, "next", "one", "two", next).status,
-      "created"
+test("the daily draw uses opted-in verified players with no XP and keeps its selection on retry", () => {
+  const folder = mkdtempSync(join(tmpdir(), "pg-auto-daily-"));
+  try {
+    const path = join(folder, "contests.json");
+    const store = new ContestStore(path);
+    for (const id of ["a", "b", "unverified", "opt-out"])
+      setContestParticipation(store, id, true);
+    setContestParticipation(store, "opt-out", false);
+    store.update((state) => {
+      state.contests.draw = {
+        id: "draw",
+        kind: "daily",
+        channelId: "test",
+        phase: "draft",
+        closesAt: 0,
+        entries: [],
+        automaticDraw: true,
+      };
+    });
+    const draw = settleAutomaticDraw(
+      store,
+      "draw",
+      ["a", "b", "b", "opt-out", "stranger"],
+      123,
+      () => 0
     );
+    assert.equal(draw.phase, "closed");
+    assert.deepEqual(draw.entries, ["a", "b"]);
+    assert.equal(draw.winner, "a");
+    assert.deepEqual(store.read().activity, {});
+    const restarted = new ContestStore(path);
     assert.equal(
-      acceptDuelChallenge(recovered, "next", "two", next, () => 0).status,
-      "played"
+      settleAutomaticDraw(restarted, "draw", ["b"], 456).winner,
+      "a"
     );
-    assert.equal(recovered.read().activity.one.totalXp, 20);
-    assert.equal(recovered.read().activity.one.weeklyXp, 10);
-    assert.equal(recovered.read().activity.one.duelWins, 1);
-    assert.equal(recovered.read().activity.one.duelLosses, 1);
-    assert.equal(
-      getContestEligibility(
-        "daily",
-        recovered.read().activity.one,
-        getContestWeek(next)
-      ),
-      null
-    );
+    assert.equal(redrawUnlinkedWinner(restarted, "draw", "a").winner, "b");
+    restarted.update((state) => {
+      state.contests.draw.paid = true;
+    });
+    assert.equal(redrawUnlinkedWinner(restarted, "draw", "b").winner, "b");
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
@@ -299,8 +322,8 @@ test("rarer Pokémon have an advantage and the underdog can still win", () => {
   assert.equal(getDuelWinChance(common, mythical), 25);
 
   const match = (result: number) => {
-    const rolls = [0, 0, 850, 0, 1, result];
-    const duel = drawDuels(["one", "two"], () => rolls.shift()!);
+    const rolls = [1, result];
+    const duel = drawDuels({ one: common, two: rare }, () => rolls.shift()!);
     assert.deepEqual(duel.pokemon, { one: common, two: rare });
     assert.equal(rolls.length, 0);
     return duel.rounds[0][0];
@@ -319,7 +342,10 @@ test("rarer Pokémon have an advantage and the underdog can still win", () => {
 
 test("duels eliminate every entrant except the winner, including odd groups", () => {
   const entries = ["one", "two", "three", "four", "five"];
-  const { winner, rounds } = drawDuels(entries, () => 0);
+  const pokemon = Object.fromEntries(
+    entries.map((id) => [id, drawDuelPokemon(() => 0)])
+  );
+  const { winner, rounds } = drawDuels(pokemon, () => 0);
   const eliminated = rounds.flat().map((duel) => duel.eliminated);
   assert.equal(eliminated.length, entries.length - 1);
   assert.deepEqual(new Set([...eliminated, winner]), new Set(entries));
@@ -332,31 +358,4 @@ test("guess normalization, hint boundaries and Warsaw schedule", () => {
   const now = Date.parse("2026-10-31T23:30:00Z");
   assert.equal(getScheduleSlot("weekly", now)?.key, "2026-11-01");
   assert.equal(getScheduleSlot("monthly", now), null);
-});
-
-test("eight duel windows have independent plan keys and non-overlapping start times", () => {
-  const windowStarts = [7, 8, 10, 12, 14, 16, 18, 20];
-  const windows = windowStarts.map((hour) => getDuelScheduleWindow(hour * 60)!);
-  assert.deepEqual(
-    windows.map((window) => window.key),
-    [
-      "games:early-morning",
-      "games:late-morning",
-      "games:morning",
-      "games:midday",
-      "games:early-afternoon",
-      "games:afternoon",
-      "games:early-evening",
-      "games",
-    ]
-  );
-  for (const [index, window] of windows.entries()) {
-    assert.equal(window.firstMinute, windowStarts[index] * 60);
-    assert.equal(getDuelScheduleWindow(window.lastMinute), window);
-    if (index < windows.length - 1)
-      assert.equal(window.lastMinute + 1, windows[index + 1].firstMinute);
-  }
-  assert.equal(windows[7].lastMinute, 21 * 60);
-  assert.equal(getDuelScheduleWindow(7 * 60 - 1), undefined);
-  assert.equal(getDuelScheduleWindow(22 * 60), undefined);
 });

@@ -1,7 +1,6 @@
 import { randomInt } from "node:crypto";
 import {
   addContestXp,
-  drawDuelPokemon,
   drawDuels,
   EMPTY_ACTIVITY,
   getContestWeek,
@@ -9,19 +8,25 @@ import {
   POKEMON_XP,
   recordDuelResult,
   PLAYER_DUEL_COOLDOWN,
-  DUEL_CHALLENGE_DURATION,
 } from "./rules";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { type CollectionState, getOwnedCards } from "./collection";
 import type {
   Activity,
   ContestKind,
-  ContestPlanKey,
+  ScheduledContest,
   DuelMatch,
   DuelPokemon,
 } from "./rules";
 
-export type Reward = { currency: "yen" | "pz"; amount: number };
+export type Reward =
+  | { currency: "yen" | "pz"; amount: number }
+  | {
+      currency: "bundle";
+      name: string;
+      items: Array<{ name: string; quantity: number }>;
+    };
 
 export type Contest = {
   id: string;
@@ -43,25 +48,21 @@ export type Contest = {
   rounds?: DuelMatch[][];
   duelPokemon?: Record<string, DuelPokemon | string>;
   paid?: boolean;
+  automaticDraw?: true;
   published?: boolean;
   displayedEntries?: number;
   hintShown?: boolean;
   lastAttemptAt?: number;
 };
 
-type DuelChallenge = {
-  challengerId: string;
-  invitedId?: string;
-  expiresAt: number;
-};
-
 type ContestState = {
   version: 1;
   activity: Record<string, Activity>;
   contests: Record<string, Contest>;
-  duelChallenges?: Record<string, DuelChallenge>;
+  enrolledPlayers?: Record<string, true>;
+  collection?: CollectionState;
   plans: Partial<
-    Record<ContestPlanKey, { key: string; minute: number; started: boolean }>
+    Record<ScheduledContest, { key: string; minute: number; started: boolean }>
   >;
 };
 
@@ -101,76 +102,71 @@ export class ContestStore {
   }
 }
 
-function findDuelCooldown(store: ContestStore, players: string[], now: number) {
-  for (const playerId of players) {
-    const lastDuelAt = store.read().activity[playerId]?.lastPlayerDuelAt;
-    if (lastDuelAt === undefined) continue;
-    const availableAt = lastDuelAt + PLAYER_DUEL_COOLDOWN;
-    if (availableAt > now)
-      return { status: "cooldown" as const, playerId, availableAt };
-  }
-  return null;
+export function setContestParticipation(
+  store: ContestStore,
+  playerId: string,
+  enabled: boolean
+) {
+  if (Boolean(store.read().enrolledPlayers?.[playerId]) === enabled)
+    return false;
+  store.update((state) => {
+    const players = (state.enrolledPlayers ??= {});
+    if (enabled) players[playerId] = true;
+    else delete players[playerId];
+  });
+  return true;
 }
 
-export function openDuelChallenge(
+function getDuelAvailableAt(store: ContestStore, playerId: string) {
+  const lastDuelAt = store.read().activity[playerId]?.lastPlayerDuelAt;
+  return lastDuelAt === undefined ? 0 : lastDuelAt + PLAYER_DUEL_COOLDOWN;
+}
+
+export function getDuelPool(
   store: ContestStore,
-  id: string,
-  challengerId: string,
-  invitedId?: string,
+  playerId: string,
   now = Date.now()
 ) {
-  if (invitedId === challengerId) return { status: "self" as const };
-  const cooldown = findDuelCooldown(
-    store,
-    invitedId ? [challengerId, invitedId] : [challengerId],
-    now
+  const { enrolledPlayers, collection } = store.read();
+  return Object.keys(enrolledPlayers ?? {}).filter(
+    (id) =>
+      id !== playerId &&
+      getDuelAvailableAt(store, id) <= now &&
+      getOwnedCards(collection, id).length > 0
   );
-  if (cooldown) return cooldown;
-  const active = Object.entries(store.read().duelChallenges ?? {}).filter(
-    ([, challenge]) => challenge.expiresAt > now
-  );
-  const pending = active.find(
-    ([, challenge]) => challenge.challengerId === challengerId
-  );
-  if (pending)
-    return { status: "pending" as const, expiresAt: pending[1].expiresAt };
-
-  const challenge: DuelChallenge = {
-    challengerId,
-    invitedId,
-    expiresAt: now + DUEL_CHALLENGE_DURATION,
-  };
-  store.update((state) => {
-    state.duelChallenges = Object.fromEntries([...active, [id, challenge]]);
-  });
-  return { status: "created" as const, challenge };
 }
 
-export function acceptDuelChallenge(
+export function playPlayerDuel(
   store: ContestStore,
-  id: string,
+  challengerId: string,
   opponentId: string,
   now = Date.now(),
   roll = randomInt
 ) {
-  const challenge = store.read().duelChallenges?.[id];
-  if (!challenge || challenge.expiresAt <= now)
-    return { status: "closed" as const };
-  const { challengerId, invitedId } = challenge;
-  if (challengerId === opponentId) return { status: "self" as const };
-  if (invitedId && invitedId !== opponentId)
-    return { status: "reserved" as const };
+  if (opponentId === challengerId) return { status: "self" as const };
   const players = [challengerId, opponentId];
-  const cooldown = findDuelCooldown(store, players, now);
-  if (cooldown) return cooldown;
+  for (const playerId of players) {
+    if (!store.read().enrolledPlayers?.[playerId])
+      return { status: "not_joined" as const, playerId };
+    const availableAt = getDuelAvailableAt(store, playerId);
+    if (availableAt > now)
+      return { status: "cooldown" as const, playerId, availableAt };
+  }
 
-  const challengerPokemon = drawDuelPokemon(roll);
-  const opponentPokemon = drawDuelPokemon(roll);
+  const { collection } = store.read();
+  const challengerCards = getOwnedCards(collection, challengerId);
+  if (!challengerCards.length)
+    return { status: "no_cards" as const, playerId: challengerId };
+  const opponentCards = getOwnedCards(collection, opponentId);
+  if (!opponentCards.length)
+    return { status: "no_cards" as const, playerId: opponentId };
+
+  const challengerPokemon = challengerCards[roll(challengerCards.length)];
+  const opponentPokemon = opponentCards[roll(opponentCards.length)];
   const challengerChance = getDuelWinChance(challengerPokemon, opponentPokemon);
   const winnerId = roll(100) < challengerChance ? challengerId : opponentId;
   const week = getContestWeek(now);
   store.update((state) => {
-    delete state.duelChallenges?.[id];
     for (const playerId of players) {
       const previous = state.activity[playerId] ?? EMPTY_ACTIVITY;
       state.activity[playerId] = {
@@ -190,6 +186,49 @@ export function acceptDuelChallenge(
   };
 }
 
+export function settleAutomaticDraw(
+  store: ContestStore,
+  id: string,
+  eligiblePlayers: string[],
+  now = Date.now(),
+  random = randomInt
+) {
+  return store.update((state) => {
+    const draw = state.contests[id];
+    if (draw.phase !== "draft") return draw;
+    if (draw.kind !== "daily" || !draw.automaticDraw)
+      throw new Error("Nieprawidłowy typ losowania automatycznego.");
+
+    draw.entries = [...new Set(eligiblePlayers)].filter(
+      (player) => state.enrolledPlayers?.[player]
+    );
+    draw.winner = draw.entries.length
+      ? draw.entries[random(draw.entries.length)]
+      : null;
+    draw.closesAt = now;
+    draw.phase = "closed";
+    return draw;
+  });
+}
+
+export function redrawUnlinkedWinner(
+  store: ContestStore,
+  id: string,
+  winnerId: string,
+  random = randomInt
+) {
+  return store.update((state) => {
+    const draw = state.contests[id];
+    if (!draw.automaticDraw || draw.paid || draw.winner !== winnerId)
+      return draw;
+    draw.entries = draw.entries.filter((player) => player !== winnerId);
+    draw.winner = draw.entries.length
+      ? draw.entries[random(draw.entries.length)]
+      : null;
+    return draw;
+  });
+}
+
 export function settleContest(
   store: ContestStore,
   id: string,
@@ -202,7 +241,12 @@ export function settleContest(
     const week = getContestWeek(now);
     event.phase = "closed";
     if (event.kind === "games") {
-      const result = drawDuels(event.entries.length > 1 ? event.entries : []);
+      const pokemon: Record<string, DuelPokemon> = {};
+      for (const playerId of event.entries) {
+        const cards = getOwnedCards(state.collection, playerId);
+        if (cards.length) pokemon[playerId] = cards[randomInt(cards.length)];
+      }
+      const result = drawDuels(Object.keys(pokemon).length > 1 ? pokemon : {});
       event.winner = result.winner;
       event.rounds = result.rounds;
       event.duelPokemon = result.pokemon;

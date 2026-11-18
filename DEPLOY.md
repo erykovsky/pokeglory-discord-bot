@@ -30,52 +30,56 @@ Do parowania kont ustaw też `POKEGLORY_DISCORD_BOT_SECRET` w `.env` bota oraz t
 Mirror czatu gry domyślnie szuka kanału `💬｜chat-w-grze`; można go też wskazać konkretnie przez `POKEGLORY_GAME_CHAT_CHANNEL_ID`.
 Mirror aktualizacji gry domyślnie szuka kanału `📢｜aktualizacje`; można go też wskazać konkretnie przez `POKEGLORY_UPDATES_CHANNEL_ID`.
 
-## Konkursy zamiast /daily
+## Kolekcja, pojedynki i losowanie
 
-1. W grze zastosuj kompatybilną migrację tabeli `discord_contests` lub `db:push`
-   i wdroż endpoint `/api/discord/contests` przed przełączeniem bota.
-2. W konfiguracji **gry** ustaw `DISCORD_CONTEST_REWARDS` jako obiekt JSON.
-   Klucze to `daily`, `weekly`, `monthly` i `numbers`. Wartość to
-   `{"currency":"yen","amount":50000}` albo `{"currency":"pz","amount":10}`.
-   To przykładowe wartości do ustalenia przez administrację. Brak nagrody w konfiguracji
-   oznacza, że bot nie otworzy danego losowania. Turniej pojedynków przyznaje
-   po 10 XP obojgu graczom za rozegrany pojedynek, a zgadywanie Pokémona przyznaje 15 XP.
-   Każdy gracz otrzymuje jednego Pokémona na cały turniej. Rzadkość jest losowana
-   przed gatunkiem. Każdy stopień różnicy daje rzadszemu Pokémonowi 5 punktów
-   procentowych przewagi od bazowych 50%, maksymalnie do 75%.
-3. Przygotuj osobną kategorię Discord dla konkursów poza
-   `POKEGLORY_PROTECTED_CATEGORY_IDS`, żeby synchronizacja uprawnień dostępu do gry
-   nie nadpisywała blokad poziomu. W kanałach o wymaganym poziomie
-   odbierz `View Channel` roli `@everyone` i przyznaj go odpowiedniej roli poziomu.
-   Daj botowi dostęp do kanałów, wysyłania embedów i załączników oraz do zarządzania
-   rolami poziomu. Role poziomu umieść poniżej roli bota.
-4. W konfiguracji **bota** ustaw `POKEGLORY_GUILD_ID`, istniejący sekret i
-   `POKEGLORY_CONTESTS`. Obiekt zawiera pola:
-   - `channels` z ID kanałów dla wybranych rodzajów. Dostępne klucze to `daily`,
-     `weekly`, `monthly`, `games`, `numbers` i `pokemon`. Pominięcie klucza
-     wyłącza dany rodzaj. Losowanie dzienne wymaga również ustawienia
-     `games`. Oba mogą korzystać z tego samego kanału. Zgadywanki potrzebują osobnych kanałów.
-   - Opcjonalne `duelChannel` z ID kanału komendy `/pojedynek`. Gracz wybiera
-     przeciwnika lub publikuje otwarte wyzwanie. Walka odbywa się po akceptacji.
-     Obaj gracze dostają po 10 XP i kwalifikują się do losowań w bieżącym tygodniu.
-     Godzinna przerwa zaczyna się po rozegranej walce i obowiązuje także po restarcie bota.
-   - `levelRoles` z parami poziom i ID roli. Przykładowe poziomy to `2` dla kanału
-     tygodniowego i `3` dla miesięcznego. Bot przyznaje role wraz z postępem.
-   - `automatic` jako `true` uruchamia do ośmiu turniejów dziennie. Bot losuje godziny
-     startu w oknach 07:00–08:00, 08:00–10:00, 10:00–12:00, 12:00–14:00,
-     14:00–16:00, 16:00–18:00, 18:00–20:00 i 20:00–21:00 czasu warszawskiego.
-     Losowanie dzienne jest jedno i startuje po zakończeniu ostatniego,
-     wieczornego turnieju. Zgadywanie Pokémona może zacząć się codziennie, losowanie tygodniowe
-     w niedzielę, a miesięczne ostatniego dnia miesiąca. Administrator może
-     uruchomić dowolny aktywny rodzaj komendą `/konkurs`.
-5. Gracze używają `/aktywnosc` do podglądu poziomu, XP, bilansu wygranych
-   i przegranych oraz statusu pojedynku w tym tygodniu. Bilans obejmuje pojedynki z komendy
-   i każdą rozegraną rundę turnieju, a zmiana tygodnia go nie zeruje. Co najmniej jeden rozegrany pojedynek wystarcza do dziennych
-   losowań do najbliższego poniedziałku czasu warszawskiego. Wiadomości na czacie
-   nie dają XP. Poprzedni łączny XP pozostaje zapisany.
+Ustaw kanał konkursów, pojedynków i kolekcji w konfiguracji bota. Przykład:
 
-Zachowaj wolumen `./data:/app/data`, w którym jest plik `contests.json`.
-Przechowuje aktywność, zapisy i wynik w trakcie wypłaty. Uruchamiaj jedną
-instancję bota zapisującą ten plik. Ponowienie wypłaty z tym samym identyfikatorem
-nie powoduje ponownego przyznania nagrody. Przed zmianą ID kanału pozostaw
-botowi dostęp do poprzedniego do końca otwartego konkursu.
+```dotenv
+POKEGLORY_CONTESTS={"channels":{"daily":"KONKURSY_ID"},"duelChannel":"POJEDYNKI_ID","collectionChannel":"KOLEKCJA_ID","automatic":true}
+```
+
+Zostaw istniejący sekret integracji oraz wolumen `./data:/app/data` ze stanem
+`contests.json`. Jedna instancja bota zapisuje w nim historię pojedynków,
+uczestnictwo, karty, limity i otwarte wymiany. Przed podmianą zrób kopię pliku.
+Kolekcja potrzebuje uprawnień do czytania kanału, wysyłania wiadomości i embedów.
+Bez `collectionChannel` komenda `/losuj` dalej losuje liczbę.
+
+1. Ustaw rotację od poniedziałku do niedzieli w konfiguracji **gry** i wdróż
+   aplikację PokeGlory obsługującą zestawy w `/api/discord/contests`. Aktualizacja
+   korzysta z istniejącej tabeli `discord_contests`. Do czasu aktualizacji bota
+   starszy klient nadal otrzymuje 250 000 ¥ za dzienne losowanie.
+2. Wdrażając bota, ustaw ID kanału tekstowego `#kolekcja`. Usuń klucz
+   `games` z `channels`, jeśli turnieje mają zniknąć także z komendy administracji.
+   Automatyczny harmonogram nie uruchamia turniejów.
+
+```dotenv
+DISCORD_CONTEST_REWARDS={"daily":["adventure","hunter","training","adventure","hunter","training","shiny"]}
+```
+
+Codziennie o 20:30 czasu warszawskiego bot losuje jednego zweryfikowanego gracza
+spośród uczestników `/dolacz`, wypłaca nagrodę do gry i ogłasza wynik.
+Udział jest trwały do wpisania `/opusc`. Bot nie otwiera zapisów ani nie wymaga
+XP, wygranej lub obecności na kanale. W razie krótkiego przestoju może nadrobić
+losowanie po uruchomieniu tego samego dnia. Administrator może rozliczyć je
+ręcznie poleceniem `/konkurs` najwyżej raz danego dnia. Kanały dodatkowych
+konkursów można nadal skonfigurować oddzielnie.
+
+`/dolacz` zgadza się również na udział w pojedynkach. Na `#pojedynki`
+`/pojedynek` od razu losuje dostępnego gracza z puli. Opcja `gracz`
+pozwala wybrać kogoś po nicku. Obaj uczestnicy muszą być w puli i mieć kartę.
+Bot losuje po jednym gatunku lub formie z aktualnej kolekcji każdego gracza.
+Duplikaty nie zwiększają szans w losowaniu karty do walki. Wynik pokazuje
+grafiki obu Pokémonów. Karty zostają u właścicieli także po porażce.
+Przy ręcznym turnieju bot wybiera po jednej karcie z kolekcji na cały turniej.
+Godzinna przerwa po walce i bilans są zachowane. Bot usuwa przyciski starych
+wyzwań z ostatnich 100 wiadomości kanału oraz po kliknięciu w starszy przycisk.
+
+Na `#kolekcja` polecenie `/losuj` wyświetla jedną z 224 kart. Każdy gracz ma
+trzy losowania w ostatnich czterech godzinach i jedno złapanie co cztery godziny.
+Autor ma 10 sekund pierwszeństwa, a karta jest dostępna przez 90 sekund.
+Grafiki pochodzą z istniejących zasobów Pokémonów PokeGlory.
+`/kolekcja` pokazuje zbiór i limity, a opcja `pokemon` otwiera podgląd karty.
+`/zyczenia` zarządza listą życzeń,
+a `/wymiana` proponuje wymianę jednej karty za jedną.
+Wymiana trwa 10 minut i wymaga potwierdzenia tylko przez zaproszoną osobę.
+Bot usuwa przyciski po złapaniu, wymianie albo upływie czasu.

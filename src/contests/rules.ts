@@ -62,7 +62,7 @@ export const NUMBER_HINT_AFTER = 5 * minute;
 export const POKEMON_XP = 15;
 export const DUEL_XP = 10;
 export const PLAYER_DUEL_COOLDOWN = 60 * minute;
-export const DUEL_CHALLENGE_DURATION = 5 * minute;
+export const DAILY_DRAW_START_MINUTE = 20 * 60 + 30;
 
 type DuelRarity = (typeof duelPokemonTiers)[number]["rarity"];
 
@@ -173,11 +173,11 @@ export function numberHint(target: number, max: number) {
   return target <= half ? [1, half] : [half + 1, max];
 }
 
-export function drawDuels(entries: string[], roll = randomInt) {
-  const pokemon = Object.fromEntries(
-    entries.map((player) => [player, drawDuelPokemon(roll)])
-  );
-  const players = [...entries];
+export function drawDuels(
+  pokemon: Record<string, DuelPokemon>,
+  roll = randomInt
+) {
+  const players = Object.keys(pokemon);
   for (let index = players.length - 1; index > 0; index--) {
     const other = roll(index + 1);
     [players[index], players[other]] = [players[other], players[index]];
@@ -216,75 +216,12 @@ export function drawDuels(entries: string[], roll = randomInt) {
 }
 
 export const SCHEDULED_CONTESTS = [
-  "games",
   "daily",
   "weekly",
   "monthly",
   "pokemon",
 ] as const;
 export type ScheduledContest = (typeof SCHEDULED_CONTESTS)[number];
-const duelScheduleWindows = [
-  {
-    key: "games:early-morning",
-    firstMinute: 7 * 60,
-    lastMinute: 8 * 60 - 1,
-    expiresAt: 8 * 60,
-  },
-  {
-    key: "games:late-morning",
-    firstMinute: 8 * 60,
-    lastMinute: 10 * 60 - 1,
-    expiresAt: 10 * 60,
-  },
-  {
-    key: "games:morning",
-    firstMinute: 10 * 60,
-    lastMinute: 12 * 60 - 1,
-    expiresAt: 12 * 60,
-  },
-  {
-    key: "games:midday",
-    firstMinute: 12 * 60,
-    lastMinute: 14 * 60 - 1,
-    expiresAt: 14 * 60,
-  },
-  {
-    key: "games:early-afternoon",
-    firstMinute: 14 * 60,
-    lastMinute: 16 * 60 - 1,
-    expiresAt: 16 * 60,
-  },
-  {
-    key: "games:afternoon",
-    firstMinute: 16 * 60,
-    lastMinute: 18 * 60 - 1,
-    expiresAt: 18 * 60,
-  },
-  {
-    key: "games:early-evening",
-    firstMinute: 18 * 60,
-    lastMinute: 20 * 60 - 1,
-    expiresAt: 20 * 60,
-  },
-  {
-    key: "games",
-    firstMinute: 20 * 60,
-    lastMinute: 21 * 60,
-    expiresAt: 22 * 60,
-  },
-] as const;
-
-export type ContestPlanKey =
-  | ScheduledContest
-  | (typeof duelScheduleWindows)[number]["key"];
-
-export function getDuelScheduleWindow(minuteOfDay: number) {
-  return duelScheduleWindows.find(
-    ({ firstMinute, expiresAt }) =>
-      minuteOfDay >= firstMinute && minuteOfDay < expiresAt
-  );
-}
-
 const warsawClock = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Warsaw",
   hourCycle: "h23",
